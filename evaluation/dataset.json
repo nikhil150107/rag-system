@@ -1,0 +1,197 @@
+[
+  {
+    "id": "q001",
+    "category": "direct_factual",
+    "question": "What is the p95 document retrieval latency SLA for Project Titan?",
+    "conversation_history": [],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["200ms", "latency", "SLA", "p95"],
+    "answerable": true
+  },
+  {
+    "id": "q002",
+    "category": "direct_factual",
+    "question": "What security compliance and encryption standards are used in Project Titan?",
+    "conversation_history": [],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["AES-256", "encryption at rest", "RBAC", "role-based access control"],
+    "answerable": true
+  },
+  {
+    "id": "q003",
+    "category": "direct_factual",
+    "question": "Who designed the Antigravity agentic coding system?",
+    "conversation_history": [],
+    "expected_document": "antigravity_info.txt",
+    "expected_keywords": ["Google DeepMind", "Antigravity"],
+    "answerable": true
+  },
+  {
+    "id": "q004",
+    "category": "direct_factual",
+    "question": "What vector database is used for persistent semantic search in the architecture?",
+    "conversation_history": [],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["ChromaDB", "vector"],
+    "answerable": true
+  },
+  {
+    "id": "q005",
+    "category": "direct_factual",
+    "question": "What framework is used for the user interface frontend in Project Titan?",
+    "conversation_history": [],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["Streamlit", "frontend"],
+    "answerable": true
+  },
+  {
+    "id": "q006",
+    "category": "multi_chunk",
+    "question": "Describe the complete technical stack and architecture of Project Titan including backend, frontend, and storage.",
+    "conversation_history": [],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["Python Flask", "Streamlit", "ChromaDB", "SentenceTransformer"],
+    "answerable": true
+  },
+  {
+    "id": "q007",
+    "category": "multi_chunk",
+    "question": "What capabilities does Antigravity provide for software engineering teams?",
+    "conversation_history": [],
+    "expected_document": "antigravity_info.txt",
+    "expected_keywords": ["pair programming", "codebase navigation", "autonomous task execution", "artifacts"],
+    "answerable": true
+  },
+  {
+    "id": "q008",
+    "category": "conversational",
+    "question": "What are its key latency requirements?",
+    "conversation_history": [
+      {"role": "user", "content": "Tell me about Project Titan."},
+      {"role": "assistant", "content": "Project Titan is an enterprise retrieval-augmented generation platform developed in 2026."}
+    ],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["200ms", "latency"],
+    "answerable": true
+  },
+  {
+    "id": "q009",
+    "category": "conversational",
+    "question": "Does it support role-based access control?",
+    "conversation_history": [
+      {"role": "user", "content": "Tell me about Project Titan's security features."},
+      {"role": "assistant", "content": "Project Titan includes AES-256 encryption at rest."}
+    ],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["RBAC", "role-based access control"],
+    "answerable": true
+  },
+  {
+    "id": "q010",
+    "category": "conversational",
+    "question": "Who created it?",
+    "conversation_history": [
+      {"role": "user", "content": "Explain what the Antigravity system does."},
+      {"role": "assistant", "content": "Antigravity is an agentic coding assistant with multi-turn support and artifacts."}
+    ],
+    "expected_document": "antigravity_info.txt",
+    "expected_keywords": ["Google DeepMind"],
+    "answerable": true
+  },
+  {
+    "id": "q011",
+    "category": "conversational",
+    "question": "What backend framework does it run on?",
+    "conversation_history": [
+      {"role": "user", "content": "Let us review Project Titan."},
+      {"role": "assistant", "content": "Project Titan uses hybrid search with ChromaDB."}
+    ],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["Python Flask", "Flask"],
+    "answerable": true
+  },
+  {
+    "id": "q012",
+    "category": "direct_factual",
+    "question": "In what year was Project Titan developed?",
+    "conversation_history": [],
+    "expected_document": "project_titan_specs.txt",
+    "expected_keywords": ["2026"],
+    "answerable": true
+  },
+  {
+    "id": "q013",
+    "category": "out_of_domain",
+    "question": "What is the capital of France?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q014",
+    "category": "out_of_domain",
+    "question": "How do you bake a traditional sourdough bread from scratch?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q015",
+    "category": "unanswerable_entity",
+    "question": "What is the CEO's favorite color in Project Titan?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q016",
+    "category": "unanswerable_entity",
+    "question": "How much does the Project Titan Enterprise subscription cost per user?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q017",
+    "category": "unanswerable_entity",
+    "question": "What is the office address of Google DeepMind in Zurich?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q018",
+    "category": "unanswerable_entity",
+    "question": "What are the hardware specifications of the GPU cluster running Antigravity?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q019",
+    "category": "out_of_domain",
+    "question": "Who won the FIFA World Cup in 2022?",
+    "conversation_history": [],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  },
+  {
+    "id": "q020",
+    "category": "conversational",
+    "question": "What is the weather forecast tomorrow for it?",
+    "conversation_history": [
+      {"role": "user", "content": "Tell me about Antigravity."},
+      {"role": "assistant", "content": "Antigravity is an AI coding assistant from Google DeepMind."}
+    ],
+    "expected_document": null,
+    "expected_keywords": [],
+    "answerable": false
+  }
+]

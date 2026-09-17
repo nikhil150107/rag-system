@@ -1,0 +1,41 @@
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# Python cache & compiled bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Environment variables & secrets (CRITICAL)
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# Local vector store & file uploads
+vectorstore/
+uploads/
+backend/uploads/*
+!backend/uploads/project_titan_specs.txt
+!backend/uploads/antigravity_info.txt
+
+# Local logs & observability outputs
+logs/
+*.log
+evaluation/results/
+
+# Testing & cache directories
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE & OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,8 @@
+flask
+chromadb
+sentence-transformers
+python-dotenv
+flask-cors
+PyPDF2
+openai
+pytest
