@@ -78,9 +78,15 @@ streamlit run frontend/app.py
 ### Deployment Architecture
 Streamlit Cloud runs the frontend UI in a managed cloud container. The frontend communicates with the RAG backend via standard REST APIs (`/health`, `/upload`, `/ask`, `/metrics`).
 
-1. **Deploy Flask Backend**:
-   - Host the Flask backend repository on a cloud container platform such as **Render**, **Railway**, **HuggingFace Spaces**, or **AWS EC2**.
-   - Note the public URL (e.g., `https://my-rag-backend.onrender.com`).
+1. **Deploy Flask Backend (e.g. on Render)**:
+   - Create a **New Web Service** connected to your repository on [Render](https://dashboard.render.com/).
+   - **Environment:** `Python 3`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `gunicorn backend.app:app`
+   - **Environment Variables:**
+     - `OPENAI_API_KEY` = `your-openai-api-key`
+     - `RAG_OBSERVABILITY_ENABLED` = `true`
+   - Note the public URL provided by Render (e.g., `https://my-rag-backend.onrender.com`).
 
 2. **Deploy Streamlit Frontend on Streamlit Cloud**:
    - Go to [share.streamlit.io](https://share.streamlit.io/) and click **New App**.

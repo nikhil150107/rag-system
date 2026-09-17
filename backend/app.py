@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import logging
 import traceback
@@ -9,6 +10,14 @@ from flask_cors import CORS
 import chromadb
 from werkzeug.utils import secure_filename
 from openai import OpenAI
+
+BASE_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BASE_DIR.parent
+
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from rag import (
     parse_document,
@@ -31,8 +40,6 @@ logger = logging.getLogger("rag_backend")
 # ---------------------------------------------------------
 # 1. Environment & Configuration
 # ---------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
-ROOT_DIR = BASE_DIR.parent
 ENV_PATH = ROOT_DIR / ".env"
 
 if ENV_PATH.exists():
@@ -40,7 +47,7 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
-FLASK_PORT = int(os.getenv("FLASK_PORT", 5000))
+FLASK_PORT = int(os.getenv("PORT", os.getenv("FLASK_PORT", 5000)))
 VECTOR_DB_PATH_RAW = os.getenv("VECTOR_DB_PATH", "./vectorstore")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.6))
