@@ -1,6 +1,6 @@
 # Document Q&A RAG Assistant
 
-A production-aware, multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, and telemetry observability.
+A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation, and telemetry observability.
 
 ---
 
@@ -24,13 +24,43 @@ Answer + Sources (Vector Distance & Reranker Score) + Telemetry
 
 ---
 
+## ☁️ Deployment on Streamlit Cloud (Standalone Architecture)
+
+The application is engineered to run as a **standalone, self-contained Streamlit application** on **Streamlit Cloud**. The RAG pipeline (`backend/rag`) is directly executed in-process with singleton model caching (`@st.cache_resource`), completely eliminating the need for a separate Flask backend and running comfortably within Streamlit Cloud's 1 GB RAM allowance.
+
+### Step-by-Step Deployment Instructions
+
+1. **Push Code to GitHub**:
+   - Repository: `https://github.com/nikhil150107/rag-system`
+   - Main Branch: `main`
+
+2. **Deploy on Streamlit Community Cloud**:
+   - Go to [share.streamlit.io](https://share.streamlit.io/) and click **New App**.
+   - **Repository:** `nikhil150107/rag-system`
+   - **Branch:** `main`
+   - **Main file path:** `frontend/app.py`
+
+3. **Configure Secrets**:
+   - Click **Advanced Settings** $\to$ **Secrets**.
+   - Add your OpenAI API key in TOML format:
+     ```toml
+     OPENAI_API_KEY = "sk-..."
+     ```
+   - *(Optional environment overrides can also be added here if desired)*:
+     ```toml
+     RAG_DISTANCE_THRESHOLD = "0.6"
+     RAG_INITIAL_RETRIEVAL_K = "8"
+     RAG_FINAL_CONTEXT_K = "5"
+     ```
+
+4. **Click Deploy!**:
+   - Streamlit Cloud will install `requirements.txt`, load and cache the transformer models in-process, and launch the web UI.
+
+---
+
 ## 🚀 Running Locally
 
-### 1. Prerequisites
-- Python 3.10+
-- OpenAI API Key
-
-### 2. Setup Virtual Environment
+### 1. Setup Virtual Environment
 ```powershell
 # Navigate to project directory
 cd C:\Users\nikhi\OneDrive\Desktop\rag-system
@@ -42,10 +72,10 @@ cd C:\Users\nikhi\OneDrive\Desktop\rag-system
 pip install -r requirements.txt
 ```
 
-### 3. Configure Environment Variables (`.env`)
-Create or edit `.env` in the project root:
+### 2. Configure `.env`
+Create `.env` in the root folder with:
 ```ini
-FLASK_PORT=5000
+OPENAI_API_KEY=your-openai-api-key-here
 VECTOR_DB_PATH=./vectorstore
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 RAG_DISTANCE_THRESHOLD=0.6
@@ -56,49 +86,18 @@ RAG_CONVERSATION_TURNS=5
 RAG_OBSERVABILITY_ENABLED=true
 RAG_METRICS_PATH=./logs/rag_metrics.jsonl
 RAG_LOG_QUESTIONS=false
-OPENAI_API_KEY=your-openai-api-key-here
 ```
 
-### 4. Start Flask Backend
-```powershell
-python backend/app.py
-```
-*Backend runs at `http://localhost:5000` with endpoints `/health`, `/upload`, `/ask`, and `/metrics`.*
-
-### 5. Start Streamlit Frontend (in a separate terminal)
+### 3. Start Streamlit App
 ```powershell
 streamlit run frontend/app.py
 ```
-*Frontend opens at `http://localhost:8501`.*
+*Opens automatically at `http://localhost:8501`.*
 
----
-
-## ☁️ Deployment on Streamlit Cloud
-
-### Deployment Architecture
-Streamlit Cloud runs the frontend UI in a managed cloud container. The frontend communicates with the RAG backend via standard REST APIs (`/health`, `/upload`, `/ask`, `/metrics`).
-
-1. **Deploy Flask Backend (e.g. on Render)**:
-   - Create a **New Web Service** connected to your repository on [Render](https://dashboard.render.com/).
-   - **Environment:** `Python 3`
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `gunicorn backend.app:app`
-   - **Environment Variables:**
-     - `OPENAI_API_KEY` = `your-openai-api-key`
-     - `RAG_OBSERVABILITY_ENABLED` = `true`
-   - Note the public URL provided by Render (e.g., `https://my-rag-backend.onrender.com`).
-
-2. **Deploy Streamlit Frontend on Streamlit Cloud**:
-   - Go to [share.streamlit.io](https://share.streamlit.io/) and click **New App**.
-   - **Repository:** Select your GitHub repository.
-   - **Branch:** `main`
-   - **Main file path:** `frontend/app.py`
-   - Click **Advanced Settings** $\to$ **Secrets** and add:
-     ```toml
-     BACKEND_URL = "https://my-rag-backend.onrender.com"
-     OPENAI_API_KEY = "sk-..."
-     ```
-   - Click **Deploy!**
+*(Optional) If you also want to run the REST API backend for automated testing or external API consumers:*
+```powershell
+python backend/app.py
+```
 
 ---
 
@@ -108,26 +107,27 @@ Streamlit Cloud runs the frontend UI in a managed cloud container. The frontend 
 ```powershell
 pytest tests/ -v
 ```
-*Executes all 48 unit, integration, evaluation, and negative test cases.*
+*Executes all 48 unit, integration, evaluation, and hallucination test cases.*
 
 ### Run Retrieval Evaluation
 ```powershell
 python evaluation/retrieval_evaluator.py
 ```
-*Calculates Recall@1, Recall@3, Recall@5, and MRR across Vector, Threshold, and Cross-Encoder stages and generates reports in `evaluation/results/`.*
+*Calculates Recall@1, Recall@3, Recall@5, and MRR across Vector, Threshold, and Cross-Encoder stages.*
 
 ---
 
-## ⚙️ Secrets & Configuration Reference
+## ⚙️ Configuration Reference
 
-| Secret / Env Variable | Description | Default (Local) |
+| Variable / Secret | Description | Default |
 | :--- | :--- | :--- |
-| `BACKEND_URL` | Public or local base URL of Flask backend | `http://localhost:5000` |
-| `OPENAI_API_KEY` | OpenAI API Key for reformulation and generation | *(Required for LLM)* |
-| `RAG_CONVERSATION_TURNS` | Number of recent conversation turns to retain | `5` |
-| `RAG_INITIAL_RETRIEVAL_K` | Initial candidates retrieved from ChromaDB | `8` |
-| `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `0.6` |
+| `OPENAI_API_KEY` | OpenAI API Key for reformulation and generation | *(Required)* |
+| `EMBEDDING_MODEL` | Bi-Encoder sentence-transformers model | `all-MiniLM-L6-v2` |
 | `RAG_RERANKER_MODEL` | Hugging Face Cross-Encoder model | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
+| `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `0.6` |
+| `RAG_INITIAL_RETRIEVAL_K` | Initial candidates retrieved from ChromaDB | `8` |
 | `RAG_FINAL_CONTEXT_K` | Top-$k$ chunks passed to the LLM | `5` |
+| `RAG_CONVERSATION_TURNS` | Number of recent conversation turns to retain | `5` |
+| `VECTOR_DB_PATH` | Local directory for ChromaDB vector storage | `./vectorstore` |
 | `RAG_OBSERVABILITY_ENABLED` | Enable local JSONL telemetry logging | `true` |
 | `RAG_METRICS_PATH` | File path for request metrics | `./logs/rag_metrics.jsonl` |
