@@ -1,6 +1,6 @@
-# Document Q&A RAG Assistant
+# Document Q&A RAG Assistant (Powered by xAI Grok)
 
-A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation, and telemetry observability.
+A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation via **xAI Grok** (`grok-4.20-0309-non-reasoning`), and telemetry observability.
 
 ---
 
@@ -9,7 +9,7 @@ A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversa
 ```
 User Question + Conversation History
                ↓
-1. Multi-Turn Query Reformulator (gpt-4o-mini)
+1. Multi-Turn Query Reformulator (xAI grok-4.20-0309-non-reasoning)
                ↓ [Standalone Search Query]
 2. Dense Bi-Encoder Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)
                ↓ [Top-8 Candidates]
@@ -17,7 +17,7 @@ User Question + Conversation History
                ↓ [Surviving Candidates]
 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)
                ↓ [Top-5 Relevant Chunks]
-5. Grounded LLM Generation (gpt-4o-mini with Document Context)
+5. Grounded LLM Generation (xAI grok-4.20-0309-non-reasoning with Document Context)
                ↓
 Answer + Sources (Vector Distance & Reranker Score) + Telemetry
 ```
@@ -26,7 +26,7 @@ Answer + Sources (Vector Distance & Reranker Score) + Telemetry
 
 ## ☁️ Deployment on Streamlit Cloud (Standalone Architecture)
 
-The application is engineered to run as a **standalone, self-contained Streamlit application** on **Streamlit Cloud**. The RAG pipeline (`backend/rag`) is directly executed in-process with singleton model caching (`@st.cache_resource`), completely eliminating the need for a separate Flask backend and running comfortably within Streamlit Cloud's 1 GB RAM allowance.
+The application runs as a **standalone, self-contained Streamlit application** on **Streamlit Cloud**. The RAG pipeline (`backend/rag`) is directly executed in-process with singleton model caching (`@st.cache_resource`), completely eliminating the need for a separate Flask backend and running comfortably within Streamlit Cloud's 1 GB RAM allowance.
 
 ### Step-by-Step Deployment Instructions
 
@@ -42,19 +42,21 @@ The application is engineered to run as a **standalone, self-contained Streamlit
 
 3. **Configure Secrets**:
    - Click **Advanced Settings** $\to$ **Secrets**.
-   - Add your OpenAI API key in TOML format:
+   - Add your xAI Grok API key in TOML format:
      ```toml
-     OPENAI_API_KEY = "sk-..."
+     XAI_API_KEY = "xai-your-api-key-here"
      ```
    - *(Optional environment overrides can also be added here if desired)*:
      ```toml
+     LLM_BASE_URL = "https://api.x.ai/v1"
+     LLM_MODEL = "grok-4.20-0309-non-reasoning"
      RAG_DISTANCE_THRESHOLD = "0.6"
      RAG_INITIAL_RETRIEVAL_K = "8"
      RAG_FINAL_CONTEXT_K = "5"
      ```
 
 4. **Click Deploy!**:
-   - Streamlit Cloud will install `requirements.txt`, load and cache the transformer models in-process, and launch the web UI.
+   - Streamlit Cloud will install dependencies, load and cache the transformer models in-process, and launch the web UI.
 
 ---
 
@@ -73,9 +75,11 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configure `.env`
-Create `.env` in the root folder with:
+Create `.env` in the root folder (or copy from `.env.example`):
 ```ini
-OPENAI_API_KEY=your-openai-api-key-here
+XAI_API_KEY=your-xai-api-key-here
+LLM_BASE_URL=https://api.x.ai/v1
+LLM_MODEL=grok-4.20-0309-non-reasoning
 VECTOR_DB_PATH=./vectorstore
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 RAG_DISTANCE_THRESHOLD=0.6
@@ -107,7 +111,7 @@ python backend/app.py
 ```powershell
 pytest tests/ -v
 ```
-*Executes all 48 unit, integration, evaluation, and hallucination test cases.*
+*Executes all unit, integration, evaluation, and hallucination test cases.*
 
 ### Run Retrieval Evaluation
 ```powershell
@@ -121,7 +125,9 @@ python evaluation/retrieval_evaluator.py
 
 | Variable / Secret | Description | Default |
 | :--- | :--- | :--- |
-| `OPENAI_API_KEY` | OpenAI API Key for reformulation and generation | *(Required)* |
+| `XAI_API_KEY` | xAI Grok API Key for reformulation and generation | *(Required)* |
+| `LLM_BASE_URL` | xAI OpenAI-compatible API base URL | `https://api.x.ai/v1` |
+| `LLM_MODEL` | xAI Grok LLM model name | `grok-4.20-0309-non-reasoning` |
 | `EMBEDDING_MODEL` | Bi-Encoder sentence-transformers model | `all-MiniLM-L6-v2` |
 | `RAG_RERANKER_MODEL` | Hugging Face Cross-Encoder model | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `0.6` |

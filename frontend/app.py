@@ -1,7 +1,7 @@
 """Document Q&A RAG Assistant - Standalone Streamlit Application.
 
 Executes the modular RAG pipeline directly in-process with singleton model caching
-via @st.cache_resource for high performance and low memory footprint on Streamlit Cloud.
+via @st.cache_resource and xAI Grok API (grok-4.20-0309-non-reasoning) for high performance.
 """
 import os
 import sys
@@ -47,13 +47,18 @@ from rag import (
     GROUNDED_SYSTEM_PROMPT,
     FALLBACK_SYSTEM_PROMPT,
     build_grounded_user_prompt,
+    get_llm_client,
+    get_llm_config,
+    format_llm_error,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_BASE_URL,
 )
 
 # ---------------------------------------------------------
 # 2. Page Configuration & Setup
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Document Q&A RAG Assistant",
+    page_title="Document Q&A RAG Assistant (xAI Grok)",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -121,28 +126,37 @@ def get_rag_components() -> Dict[str, Any]:
     }
 
 
-def get_openai_api_key() -> Optional[str]:
-    """Resolve OpenAI API key from Streamlit Secrets, environment, or session state."""
+def get_xai_api_key() -> Optional[str]:
+    """Resolve xAI Grok API key from Streamlit Secrets, environment, or session state."""
     # 1. Streamlit Secrets (for Streamlit Cloud deployment)
     try:
-        if "OPENAI_API_KEY" in st.secrets:
-            return st.secrets["OPENAI_API_KEY"].strip()
+        if "XAI_API_KEY" in st.secrets:
+            return st.secrets["XAI_API_KEY"].strip()
+        if "LLM_API_KEY" in st.secrets:
+            return st.secrets["LLM_API_KEY"].strip()
     except Exception:
         pass
 
     # 2. Environment Variables (.env / system)
-    key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+    key = os.getenv("XAI_API_KEY") or os.getenv("LLM_API_KEY")
     if key and key.strip():
         return key.strip()
 
     # 3. User Sidebar input
-    return st.session_state.get("user_openai_api_key", "").strip() or None
+    return st.session_state.get("user_xai_api_key", "").strip() or None
 
+
+# Backward-compatible alias
+get_openai_api_key = get_xai_api_key
 
 # Load components
 rag_components = get_rag_components()
 retriever = rag_components["retriever"]
 observability = rag_components["observability"]
+
+# Provider settings
+LLM_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("XAI_BASE_URL", DEFAULT_LLM_BASE_URL)
+LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GROK_MODEL", DEFAULT_LLM_MODEL)
 
 
 # ---------------------------------------------------------
@@ -193,12 +207,12 @@ def render_rag_pipeline_info(msg: Dict[str, Any]):
     with st.expander("🔧 RAG Pipeline & Telemetry", expanded=False):
         st.markdown("**Pipeline Execution Architecture:**")
         st.code(
-            "User Question + History\n"
-            "  ↳ 1. Multi-Turn Query Reformulator (gpt-4o-mini)\n"
-            "  ↳ 2. Dense Vector Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)\n"
-            "  ↳ 3. Cosine Distance Threshold Filter (<= 0.6)\n"
-            "  ↳ 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)\n"
-            "  ↳ 5. Grounded Context-Bound Generation (gpt-4o-mini)",
+            f"User Question + History\n"
+            f"  ↳ 1. Multi-Turn Query Reformulator ({LLM_MODEL})\n"
+            f"  ↳ 2. Dense Vector Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)\n"
+            f"  ↳ 3. Cosine Distance Threshold Filter (<= 0.6)\n"
+            f"  ↳ 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)\n"
+            f"  ↳ 5. Grounded Context-Bound Generation ({LLM_MODEL})",
             language="text"
         )
         col_a, col_b = st.columns(2)
@@ -219,7 +233,7 @@ def render_rag_pipeline_info(msg: Dict[str, Any]):
             with l_cols[1]:
                 st.metric("Retrieval + Rerank", f"{latency_breakdown.get('retrieval_ms', 0):.0f} ms")
             with l_cols[2]:
-                st.metric("LLM Generation", f"{latency_breakdown.get('llm_ms', 0):.0f} ms")
+                st.metric("Grok Generation", f"{latency_breakdown.get('llm_ms', 0):.0f} ms")
 
 
 # ---------------------------------------------------------
@@ -234,23 +248,24 @@ with st.sidebar:
         st.markdown("- **Vectorstore:** `ChromaDB PersistentClient (Active)`")
         st.markdown("- **Embedding Model:** `all-MiniLM-L6-v2 (Loaded)`")
         st.markdown("- **Cross-Encoder:** `ms-marco-MiniLM-L-6-v2 (Loaded)`")
+        st.markdown(f"- **LLM Provider:** `xAI Grok ({LLM_MODEL})`")
         st.markdown("- **Execution Mode:** `In-Process Singleton (@st.cache_resource)`")
 
     # API Key Configuration
-    api_key = get_openai_api_key()
+    api_key = get_xai_api_key()
     if not api_key:
-        st.warning("⚠️ **OpenAI API Key Missing**")
+        st.warning("⚠️ **xAI Grok API Key Missing**")
         user_key = st.text_input(
-            "Enter OpenAI API Key",
+            "Enter xAI Grok API Key",
             type="password",
-            help="Set in .env, Streamlit Secrets, or paste here for this session.",
+            help="Set XAI_API_KEY in .env, Streamlit Secrets, or paste here for this session.",
             key="user_key_input"
         )
         if user_key:
-            st.session_state["user_openai_api_key"] = user_key
+            st.session_state["user_xai_api_key"] = user_key
             st.rerun()
     else:
-        st.caption("🔑 OpenAI API Key configured")
+        st.caption("🔑 Grok API Key configured")
 
     st.divider()
 
@@ -345,8 +360,9 @@ with st.sidebar:
 # ---------------------------------------------------------
 st.title("📚 Document Q&A RAG Assistant")
 st.markdown(
-    "**Enterprise Retrieval-Augmented Generation Platform** — Ask questions grounded strictly in your uploaded documents. "
-    "Features **Conversational Memory**, **Multi-Turn Query Reformulation**, **Dense Bi-Encoder Retrieval**, **Cross-Encoder Re-Ranking**, and **Grounded LLM Generation**."
+    f"**Enterprise Retrieval-Augmented Generation Platform (Powered by xAI Grok)** — "
+    "Ask questions grounded strictly in your uploaded documents. "
+    "Features **Conversational Memory**, **Multi-Turn Query Reformulation**, **Dense Bi-Encoder Retrieval**, **Cross-Encoder Re-Ranking**, and **xAI Grok Generation**."
 )
 
 st.divider()
@@ -374,9 +390,9 @@ for msg in st.session_state.messages:
 # 7. Question Submission & Direct RAG Pipeline Execution
 # ---------------------------------------------------------
 if prompt := st.chat_input("Ask a question about your uploaded documents..."):
-    current_api_key = get_openai_api_key()
+    current_api_key = get_xai_api_key()
     if not current_api_key:
-        st.error("❌ OpenAI API Key is required to ask questions. Please configure it in the sidebar or in Streamlit Secrets.")
+        st.error("❌ XAI_API_KEY is required to ask questions. Please configure it in Streamlit Secrets or sidebar.")
     else:
         # Build prior conversation history (excluding the current prompt)
         prior_history = [
@@ -392,12 +408,18 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
 
         # Execute in-process RAG pipeline
         with st.chat_message("assistant"):
-            with st.spinner("Retrieving relevant passages, re-ranking with Cross-Encoder, and generating answer..."):
+            with st.spinner("Retrieving relevant passages, re-ranking with Cross-Encoder, and generating answer with Grok..."):
                 tracker = observability.start_request(question=prompt)
-                openai_client = OpenAI(api_key=current_api_key)
+                try:
+                    llm_client = get_llm_client(api_key=current_api_key, base_url=LLM_BASE_URL)
+                except Exception as e:
+                    err_msg, _ = format_llm_error(e)
+                    st.error(f"❌ Configuration Error: {err_msg}")
+                    st.stop()
+
                 query_reformulator = QueryReformulator(
-                    openai_client=openai_client,
-                    model="gpt-4o-mini",
+                    llm_client=llm_client,
+                    model=LLM_MODEL,
                     max_history_turns=int(os.getenv("RAG_CONVERSATION_TURNS", 5))
                 )
 
@@ -455,8 +477,8 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                         llm_messages.append({"role": "user", "content": user_prompt})
 
                         t_llm_start = time.perf_counter()
-                        response = openai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                        response = llm_client.chat.completions.create(
+                            model=LLM_MODEL,
                             messages=llm_messages,
                             max_tokens=500,
                             temperature=0.3
@@ -470,8 +492,8 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                         llm_messages.append({"role": "user", "content": prompt})
 
                         t_llm_start = time.perf_counter()
-                        response = openai_client.chat.completions.create(
-                            model="gpt-4o-mini",
+                        response = llm_client.chat.completions.create(
+                            model=LLM_MODEL,
                             messages=llm_messages,
                             max_tokens=500,
                             temperature=0.3
@@ -515,6 +537,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                     st.session_state.messages.append(msg_data)
 
                 except Exception as e:
-                    tracker.record_error(f"Pipeline error: {str(e)}")
+                    err_msg, _ = format_llm_error(e)
+                    tracker.record_error(f"Pipeline error: {err_msg}")
                     observability.log_request_metrics(tracker)
-                    st.error(f"❌ RAG Pipeline Error: {str(e)}")
+                    st.error(f"❌ {err_msg}")

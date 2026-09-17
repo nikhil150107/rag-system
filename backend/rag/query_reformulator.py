@@ -4,6 +4,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from openai import OpenAI
 from .prompts import REFORMULATION_SYSTEM_PROMPT, build_reformulation_user_prompt
+from .llm import DEFAULT_LLM_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -12,17 +13,28 @@ class QueryReformulator:
     """
     Reformulates context-dependent follow-up questions into standalone search queries
     using recent conversation history while preserving original user intent.
+    Powered by xAI Grok (grok-4.20-0309-non-reasoning).
     """
 
     def __init__(
         self,
-        openai_client: Optional[OpenAI] = None,
-        model: str = "gpt-4o-mini",
-        max_history_turns: int = 5
+        llm_client: Optional[OpenAI] = None,
+        model: str = DEFAULT_LLM_MODEL,
+        max_history_turns: int = 5,
+        openai_client: Optional[OpenAI] = None
     ):
-        self.openai_client = openai_client
+        self.llm_client = llm_client or openai_client
         self.model = model
         self.max_history_turns = max_history_turns
+
+    @property
+    def openai_client(self) -> Optional[OpenAI]:
+        """Backward-compatible alias for llm_client."""
+        return self.llm_client
+
+    @openai_client.setter
+    def openai_client(self, client: Optional[OpenAI]):
+        self.llm_client = client
 
     def sanitize_history(self, history: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
         """
@@ -69,8 +81,8 @@ class QueryReformulator:
             logger.debug("No conversation history provided. Using original question as search query.")
             return clean_question
 
-        if self.openai_client is None:
-            logger.warning("OpenAI client not configured for QueryReformulator. Using original question.")
+        if self.llm_client is None:
+            logger.warning("LLM client not configured for QueryReformulator. Using original question.")
             return clean_question
 
         user_prompt = build_reformulation_user_prompt(
@@ -79,7 +91,7 @@ class QueryReformulator:
         )
 
         try:
-            response = self.openai_client.chat.completions.create(
+            response = self.llm_client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {
@@ -109,6 +121,6 @@ class QueryReformulator:
 
         except Exception as e:
             logger.warning(
-                f"Query reformulation call failed ({str(e)}). Falling back safely to original question."
+                f"Query reformulation call failed ({type(e).__name__}). Falling back safely to original question."
             )
             return clean_question

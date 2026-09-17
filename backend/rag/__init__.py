@@ -13,6 +13,13 @@ from .prompts import (
 )
 from .observability import ObservabilityManager, RequestTracker
 from .retriever import RAGRetriever
+from .llm import (
+    get_llm_client,
+    get_llm_config,
+    format_llm_error,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_BASE_URL,
+)
 
 __all__ = [
     "parse_document",
@@ -31,4 +38,9 @@ __all__ = [
     "build_grounded_user_prompt",
     "build_reformulation_user_prompt",
     "RAGRetriever",
+    "get_llm_client",
+    "get_llm_config",
+    "format_llm_error",
+    "DEFAULT_LLM_MODEL",
+    "DEFAULT_LLM_BASE_URL",
 ]

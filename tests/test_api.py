@@ -1,4 +1,4 @@
-"""Integration tests for Flask API endpoints with offline mocked LLM."""
+"""Integration tests for Flask API endpoints with offline mocked xAI Grok LLM."""
 import pytest
 from unittest.mock import MagicMock, patch
 import io
@@ -22,6 +22,8 @@ def test_health_endpoint(client):
     assert json_data["components"]["vectorstore"] == "ok"
     assert json_data["components"]["embedding_model"] == "ok"
     assert json_data["components"]["reranker"] == "ok"
+    assert json_data["components"]["llm_provider"] == "xai_grok"
+    assert json_data["components"]["llm_model"] == "grok-4.20-0309-non-reasoning"
 
 
 def test_metrics_endpoint(client):
@@ -70,15 +72,15 @@ def test_ask_endpoint_empty_question(client):
     assert "required" in res.get_json()["error"]
 
 
-@patch.object(flask_app_module, "get_openai_client")
+@patch.object(flask_app_module, "get_current_llm_client")
 def test_ask_endpoint_mocked_llm(mock_get_client, client):
-    mock_openai = MagicMock()
+    mock_grok = MagicMock()
     mock_completion = MagicMock()
     mock_choice = MagicMock()
-    mock_choice.message.content = "Mocked LLM answer based on context."
+    mock_choice.message.content = "Mocked Grok LLM answer based on context."
     mock_completion.choices = [mock_choice]
-    mock_openai.chat.completions.create.return_value = mock_completion
-    mock_get_client.return_value = mock_openai
+    mock_grok.chat.completions.create.return_value = mock_completion
+    mock_get_client.return_value = mock_grok
 
     res = client.post("/ask", json={"question": "What is in test_api_doc?"})
     assert res.status_code == 200
@@ -88,13 +90,13 @@ def test_ask_endpoint_mocked_llm(mock_get_client, client):
     assert "context_found" in json_data
     assert "answer" in json_data
     assert "search_query" in json_data
-    assert json_data["answer"] == "Mocked LLM answer based on context."
+    assert json_data["answer"] == "Mocked Grok LLM answer based on context."
 
 
-@patch.object(flask_app_module, "get_openai_client")
+@patch.object(flask_app_module, "get_current_llm_client")
 def test_ask_endpoint_conversational_multi_turn(mock_get_client, client):
-    """Verify /ask with conversation_history reformulates query and returns answer."""
-    mock_openai = MagicMock()
+    """Verify /ask with conversation_history reformulates query with Grok and returns answer."""
+    mock_grok = MagicMock()
 
     # First completion call is for query reformulation, second is for final generation
     mock_choice_reform = MagicMock()
@@ -102,11 +104,11 @@ def test_ask_endpoint_conversational_multi_turn(mock_get_client, client):
     mock_resp_reform = MagicMock(choices=[mock_choice_reform])
 
     mock_choice_ans = MagicMock()
-    mock_choice_ans.message.content = "The Pro plan costs $20/month."
+    mock_choice_ans.message.content = "The Pro plan costs $20/month according to Grok."
     mock_resp_ans = MagicMock(choices=[mock_choice_ans])
 
-    mock_openai.chat.completions.create.side_effect = [mock_resp_reform, mock_resp_ans]
-    mock_get_client.return_value = mock_openai
+    mock_grok.chat.completions.create.side_effect = [mock_resp_reform, mock_resp_ans]
+    mock_get_client.return_value = mock_grok
 
     payload = {
         "question": "How much does it cost?",
@@ -122,7 +124,6 @@ def test_ask_endpoint_conversational_multi_turn(mock_get_client, client):
     assert "request_id" in json_data
     assert json_data["request_id"].startswith("req_")
     assert json_data["search_query"] == "What is the price of the Pro plan?"
-    assert json_data["answer"] == "The Pro plan costs $20/month."
+    assert json_data["answer"] == "The Pro plan costs $20/month according to Grok."
     assert "context_found" in json_data
     assert "sources" in json_data
-

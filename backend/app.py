@@ -31,6 +31,11 @@ from rag import (
     GROUNDED_SYSTEM_PROMPT,
     FALLBACK_SYSTEM_PROMPT,
     build_grounded_user_prompt,
+    get_llm_client,
+    get_llm_config,
+    format_llm_error,
+    DEFAULT_LLM_MODEL,
+    DEFAULT_LLM_BASE_URL,
 )
 
 # Configure logging
@@ -58,7 +63,11 @@ RAG_CONVERSATION_TURNS = int(os.getenv("RAG_CONVERSATION_TURNS", 5))
 RAG_OBSERVABILITY_ENABLED = os.getenv("RAG_OBSERVABILITY_ENABLED", "true").lower() in ("true", "1", "yes")
 RAG_METRICS_PATH = os.getenv("RAG_METRICS_PATH", "./logs/rag_metrics.jsonl")
 RAG_LOG_QUESTIONS = os.getenv("RAG_LOG_QUESTIONS", "false").lower() in ("true", "1", "yes")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
+
+# xAI Grok LLM configuration
+XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("LLM_API_KEY")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("XAI_BASE_URL", DEFAULT_LLM_BASE_URL)
+LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GROK_MODEL", DEFAULT_LLM_MODEL)
 
 # Resolve vector db path
 vector_db_path = Path(VECTOR_DB_PATH_RAW)
@@ -74,7 +83,7 @@ uploads_dir = (BASE_DIR / "uploads").resolve()
 uploads_dir.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------
-# 2. Initialization: ChromaDB, EmbeddingService, Reranker, Retriever, OpenAI, Observability, Flask
+# 2. Initialization: ChromaDB, EmbeddingService, Reranker, Retriever, Grok LLM, Observability, Flask
 # ---------------------------------------------------------
 chroma_client = chromadb.PersistentClient(path=str(vector_db_path))
 embedding_service = EmbeddingService(model_name=EMBEDDING_MODEL_NAME)
@@ -92,10 +101,16 @@ retriever = RAGRetriever(
     final_context_k=RAG_FINAL_CONTEXT_K
 )
 
-openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
+llm_client = None
+if XAI_API_KEY:
+    try:
+        llm_client = get_llm_client(api_key=XAI_API_KEY, base_url=LLM_BASE_URL)
+    except Exception as e:
+        logger.warning(f"Could not pre-initialize LLM client: {str(e)}")
+
 query_reformulator = QueryReformulator(
-    openai_client=openai_client,
-    model="gpt-4o-mini",
+    llm_client=llm_client,
+    model=LLM_MODEL,
     max_history_turns=RAG_CONVERSATION_TURNS
 )
 
@@ -112,20 +127,20 @@ CORS(app)
 # ---------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------
-def get_openai_client() -> OpenAI:
-    """Retrieve or dynamically initialize the OpenAI client."""
-    global openai_client
-    if openai_client is not None:
-        query_reformulator.openai_client = openai_client
-        return openai_client
+def get_current_llm_client() -> OpenAI:
+    """Retrieve or dynamically initialize the xAI Grok LLM client."""
+    global llm_client
+    if llm_client is not None:
+        query_reformulator.llm_client = llm_client
+        return llm_client
 
-    key = os.getenv("OPENAI_API_KEY") or os.getenv("LLM_API_KEY")
-    if not key:
-        raise ValueError("OPENAI_API_KEY is not configured in .env or environment variables.")
+    llm_client = get_llm_client(base_url=LLM_BASE_URL)
+    query_reformulator.llm_client = llm_client
+    return llm_client
 
-    openai_client = OpenAI(api_key=key)
-    query_reformulator.openai_client = openai_client
-    return openai_client
+
+# Backward-compatible alias for tests
+get_openai_client = get_current_llm_client
 
 
 # ---------------------------------------------------------
@@ -133,11 +148,13 @@ def get_openai_client() -> OpenAI:
 # ---------------------------------------------------------
 @app.route("/health", methods=["GET"])
 def health():
-    """Health check endpoint with safe component diagnostics."""
+    """Health check endpoint with component diagnostics."""
     components = {
         "vectorstore": "ok" if chroma_client is not None else "unavailable",
         "embedding_model": "ok" if embedding_service is not None else "unavailable",
-        "reranker": "ok" if reranker_service is not None else "unavailable"
+        "reranker": "ok" if reranker_service is not None else "unavailable",
+        "llm_provider": "xai_grok",
+        "llm_model": LLM_MODEL
     }
     return jsonify({
         "status": "ok",
@@ -205,10 +222,10 @@ def ask_question():
     """
     Accept question and conversation history.
     1. Start request observability tracker with unique request ID.
-    2. Reformulate question using history into a standalone search query.
-    3. Retrieve candidate chunks with standalone query.
+    2. Reformulate question using history into a standalone search query via Grok.
+    3. Retrieve candidate chunks with standalone query from ChromaDB.
     4. Filter by distance threshold and re-rank via Cross-Encoder.
-    5. Generate grounded or fallback response via OpenAI LLM using the original question.
+    5. Generate grounded or fallback response via xAI Grok (grok-4.20-0309-non-reasoning).
     6. Record telemetry metrics and return request_id with answer and sources.
     """
     data = request.get_json(silent=True) or {}
@@ -221,16 +238,17 @@ def ask_question():
     tracker = observability.start_request(question=question)
 
     try:
-        client = get_openai_client()
-        query_reformulator.openai_client = client
+        client = get_current_llm_client()
+        query_reformulator.llm_client = client
     except Exception as e:
-        tracker.record_error(f"OpenAI client init failed: {str(e)}")
+        err_msg, status_code = format_llm_error(e)
+        tracker.record_error(f"LLM client init failed: {err_msg}")
         observability.log_request_metrics(tracker)
         return jsonify({
             "request_id": tracker.request_id,
-            "error": "LLM call failed",
-            "details": str(e)
-        }), 500
+            "error": "LLM client initialization failed",
+            "details": err_msg
+        }), status_code
 
     # Sanitize conversation history
     sanitized_history = query_reformulator.sanitize_history(raw_history)
@@ -301,7 +319,7 @@ def ask_question():
         t_llm_start = time.perf_counter()
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=LLM_MODEL,
                 messages=llm_messages,
                 max_tokens=500,
                 temperature=0.3
@@ -334,14 +352,15 @@ def ask_question():
                 "sources": ui_sources
             }), 200
         except Exception as e:
-            logger.error(f"LLM call failed: {str(e)}")
-            tracker.record_error(f"LLM call failed: {str(e)}")
+            err_msg, status_code = format_llm_error(e)
+            logger.error(f"Grok LLM call failed: {err_msg}")
+            tracker.record_error(f"LLM call failed: {err_msg}")
             observability.log_request_metrics(tracker)
             return jsonify({
                 "request_id": tracker.request_id,
-                "error": "LLM call failed",
-                "details": str(e)
-            }), 500
+                "error": "LLM generation failed",
+                "details": err_msg
+            }), status_code
     else:
         # Fallback with conversation context
         llm_messages = [{"role": "system", "content": FALLBACK_SYSTEM_PROMPT}]
@@ -351,7 +370,7 @@ def ask_question():
         t_llm_start = time.perf_counter()
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=LLM_MODEL,
                 messages=llm_messages,
                 max_tokens=500,
                 temperature=0.3
@@ -371,14 +390,15 @@ def ask_question():
                 "sources": []
             }), 200
         except Exception as e:
-            logger.error(f"LLM fallback call failed: {str(e)}")
-            tracker.record_error(f"LLM fallback call failed: {str(e)}")
+            err_msg, status_code = format_llm_error(e)
+            logger.error(f"Grok LLM fallback call failed: {err_msg}")
+            tracker.record_error(f"LLM fallback call failed: {err_msg}")
             observability.log_request_metrics(tracker)
             return jsonify({
                 "request_id": tracker.request_id,
-                "error": "LLM call failed",
-                "details": str(e)
-            }), 500
+                "error": "LLM fallback generation failed",
+                "details": err_msg
+            }), status_code
 
 
 if __name__ == "__main__":
