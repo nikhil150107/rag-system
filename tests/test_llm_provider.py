@@ -78,6 +78,20 @@ def test_format_llm_error_connection():
     assert "Failed to connect" in msg
 
 
+def test_format_llm_error_bad_request_400():
+    """Verify 400 BadRequestError produces formatted diagnostic output with sanitized body."""
+    err = APIError(
+        "Error code: 400 - {'error': 'Invalid parameter top_p'}",
+        request=MagicMock(),
+        body={"error": "Invalid parameter top_p"}
+    )
+    setattr(err, "status_code", 400)
+    msg, code = format_llm_error(err)
+    assert code == 400
+    assert "xAI API 400 Bad Request:" in msg
+    assert "Invalid parameter top_p" in msg
+
+
 def test_openai_api_key_not_required():
     """Verify that system functions with ONLY XAI_API_KEY and does not look for OPENAI_API_KEY."""
     with patch.dict(os.environ, {"XAI_API_KEY": "xai-exclusive-key"}, clear=True):

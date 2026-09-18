@@ -1,5 +1,6 @@
 """LLM Provider abstraction and client factory for xAI Grok API."""
 import os
+import re
 import logging
 from typing import Optional, Dict, Any, Tuple
 from openai import OpenAI, AuthenticationError, RateLimitError, APIConnectionError, APIError
@@ -50,6 +51,18 @@ def get_llm_client(
     )
 
 
+def _sanitize_error_text(text: str) -> str:
+    """Strip out any API keys, auth tokens, or sensitive header strings."""
+    if not text:
+        return ""
+    text = re.sub(r'xai-[A-Za-z0-9_\-]+', '[REDACTED_API_KEY]', text)
+    text = re.sub(r'sk-[A-Za-z0-9_\-]+', '[REDACTED_API_KEY]', text)
+    text = re.sub(r'(Bearer\s+)[A-Za-z0-9_\-\.]+', r'\1[REDACTED]', text, flags=re.IGNORECASE)
+    text = re.sub(r'(api[_-]?key[\'":\s=]+)[\'"]?[A-Za-z0-9_\-\.]+[\'"]?', r'\1[REDACTED]', text, flags=re.IGNORECASE)
+    text = re.sub(r'(Authorization[\'":\s=]+)[\'"]?[A-Za-z0-9_\-\.\s]+[\'"]?', r'\1[REDACTED]', text, flags=re.IGNORECASE)
+    return text.strip()
+
+
 def format_llm_error(error: Exception) -> Tuple[str, int]:
     """
     Sanitize and categorize LLM provider errors without exposing sensitive API keys.
@@ -63,6 +76,24 @@ def format_llm_error(error: Exception) -> Tuple[str, int]:
         return ("Failed to connect to xAI Grok API endpoint. Please check network connectivity.", 503)
     if isinstance(error, APIError):
         status_code = getattr(error, "status_code", 500) or 500
-        return (f"xAI Grok Provider Error (Status {status_code}).", status_code)
-    
-    return ("An unexpected error occurred during LLM processing.", 500)
+        body = getattr(error, "body", None)
+        msg_detail = ""
+        if isinstance(body, dict):
+            err_obj = body.get("error")
+            if isinstance(err_obj, dict):
+                msg_detail = err_obj.get("message") or str(err_obj)
+            elif isinstance(err_obj, str):
+                msg_detail = err_obj
+            elif "message" in body:
+                msg_detail = str(body["message"])
+
+        if not msg_detail:
+            msg_detail = getattr(error, "message", "") or str(error)
+
+        sanitized_msg = _sanitize_error_text(msg_detail)
+        if status_code == 400:
+            return (f"xAI API 400 Bad Request:\n{sanitized_msg}", 400)
+        return (f"xAI Grok Provider Error (Status {status_code}):\n{sanitized_msg}", status_code)
+
+    sanitized_generic = _sanitize_error_text(str(error))
+    return (f"An unexpected error occurred during LLM processing: {sanitized_generic}", 500)
