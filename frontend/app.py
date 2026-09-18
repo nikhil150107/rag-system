@@ -18,15 +18,14 @@ from openai import OpenAI
 # ---------------------------------------------------------
 # 1. Environment & Path Configuration
 # ---------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
-ROOT_DIR = BASE_DIR.parent
+ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "backend"
 
-# Ensure backend and root are in sys.path for direct imports
-if str(BACKEND_DIR) not in sys.path:
-    sys.path.insert(0, str(BACKEND_DIR))
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
+# Ensure backend directory is prioritized at the top of sys.path
+for path_dir in [str(ROOT_DIR), str(BACKEND_DIR)]:
+    if path_dir in sys.path:
+        sys.path.remove(path_dir)
+    sys.path.insert(0, path_dir)
 
 ENV_PATH = ROOT_DIR / ".env"
 if ENV_PATH.exists():
@@ -34,26 +33,47 @@ if ENV_PATH.exists():
 else:
     load_dotenv()
 
-# Import modular RAG components directly from backend/rag
-from rag import (
-    parse_document,
-    DocumentParsingError,
-    EmbeddingService,
-    RecursiveChunker,
-    RerankerService,
-    QueryReformulator,
-    ObservabilityManager,
-    RAGRetriever,
-    GROUNDED_SYSTEM_PROMPT,
-    FALLBACK_SYSTEM_PROMPT,
-    build_grounded_user_prompt,
-    get_llm_client,
-    get_llm_config,
-    format_llm_error,
-    run_diagnostic_probe,
-    DEFAULT_LLM_MODEL,
-    DEFAULT_LLM_BASE_URL,
-)
+# Import modular RAG components directly from backend/rag with fallback
+try:
+    from rag import (
+        parse_document,
+        DocumentParsingError,
+        EmbeddingService,
+        RecursiveChunker,
+        RerankerService,
+        QueryReformulator,
+        ObservabilityManager,
+        RAGRetriever,
+        GROUNDED_SYSTEM_PROMPT,
+        FALLBACK_SYSTEM_PROMPT,
+        build_grounded_user_prompt,
+        get_llm_client,
+        get_llm_config,
+        format_llm_error,
+        run_diagnostic_probe,
+        DEFAULT_LLM_MODEL,
+        DEFAULT_LLM_BASE_URL,
+    )
+except ImportError:
+    from backend.rag import (
+        parse_document,
+        DocumentParsingError,
+        EmbeddingService,
+        RecursiveChunker,
+        RerankerService,
+        QueryReformulator,
+        ObservabilityManager,
+        RAGRetriever,
+        GROUNDED_SYSTEM_PROMPT,
+        FALLBACK_SYSTEM_PROMPT,
+        build_grounded_user_prompt,
+        get_llm_client,
+        get_llm_config,
+        format_llm_error,
+        run_diagnostic_probe,
+        DEFAULT_LLM_MODEL,
+        DEFAULT_LLM_BASE_URL,
+    )
 
 # ---------------------------------------------------------
 # 2. Page Configuration & Setup
