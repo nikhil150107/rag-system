@@ -50,6 +50,7 @@ from rag import (
     get_llm_client,
     get_llm_config,
     format_llm_error,
+    run_diagnostic_probe,
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_BASE_URL,
 )
@@ -126,14 +127,27 @@ def get_rag_components() -> Dict[str, Any]:
     }
 
 
+def resolve_llm_setting(name: str, default_val: str) -> str:
+    """Resolve configuration from st.secrets -> environment variable -> default."""
+    try:
+        if name in st.secrets and str(st.secrets[name]).strip():
+            return str(st.secrets[name]).strip()
+    except Exception:
+        pass
+    env_val = os.getenv(name)
+    if env_val and env_val.strip():
+        return env_val.strip()
+    return default_val
+
+
 def get_xai_api_key() -> Optional[str]:
     """Resolve xAI Grok API key from Streamlit Secrets, environment, or session state."""
     # 1. Streamlit Secrets (for Streamlit Cloud deployment)
     try:
-        if "XAI_API_KEY" in st.secrets:
-            return st.secrets["XAI_API_KEY"].strip()
-        if "LLM_API_KEY" in st.secrets:
-            return st.secrets["LLM_API_KEY"].strip()
+        if "XAI_API_KEY" in st.secrets and str(st.secrets["XAI_API_KEY"]).strip():
+            return str(st.secrets["XAI_API_KEY"]).strip()
+        if "LLM_API_KEY" in st.secrets and str(st.secrets["LLM_API_KEY"]).strip():
+            return str(st.secrets["LLM_API_KEY"]).strip()
     except Exception:
         pass
 
@@ -155,8 +169,8 @@ retriever = rag_components["retriever"]
 observability = rag_components["observability"]
 
 # Provider settings
-LLM_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("XAI_BASE_URL", DEFAULT_LLM_BASE_URL)
-LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GROK_MODEL", DEFAULT_LLM_MODEL)
+LLM_BASE_URL = resolve_llm_setting("LLM_BASE_URL", resolve_llm_setting("XAI_BASE_URL", DEFAULT_LLM_BASE_URL))
+LLM_MODEL = resolve_llm_setting("LLM_MODEL", resolve_llm_setting("GROK_MODEL", DEFAULT_LLM_MODEL))
 
 
 # ---------------------------------------------------------
@@ -249,7 +263,25 @@ with st.sidebar:
         st.markdown("- **Embedding Model:** `all-MiniLM-L6-v2 (Loaded)`")
         st.markdown("- **Cross-Encoder:** `ms-marco-MiniLM-L-6-v2 (Loaded)`")
         st.markdown(f"- **LLM Provider:** `xAI Grok ({LLM_MODEL})`")
+        st.markdown(f"- **Base URL:** `{LLM_BASE_URL}`")
         st.markdown("- **Execution Mode:** `In-Process Singleton (@st.cache_resource)`")
+
+        # Diagnostic Probe Button
+        test_api_key = get_xai_api_key()
+        if test_api_key:
+            if st.button("🧪 Run xAI Connection Test", key="run_probe_btn", use_container_width=True):
+                with st.spinner("Executing progressive API connection probes..."):
+                    probe_client = OpenAI(api_key=test_api_key, base_url=LLM_BASE_URL)
+                    probe_results = run_diagnostic_probe(client=probe_client, model=LLM_MODEL)
+                    all_passed = True
+                    for step_name, step_info in probe_results["steps"].items():
+                        if step_info["status"] == "PASS":
+                            st.caption(f"✅ `{step_name}`: OK")
+                        else:
+                            all_passed = False
+                            st.error(f"❌ `{step_name}` Failed: {step_info.get('error')}")
+                    if all_passed:
+                        st.success(f"🎉 All probes passed successfully with model `{LLM_MODEL}`!")
 
     # API Key Configuration
     api_key = get_xai_api_key()
@@ -413,7 +445,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                 try:
                     llm_client = get_llm_client(api_key=current_api_key, base_url=LLM_BASE_URL)
                 except Exception as e:
-                    err_msg, _ = format_llm_error(e)
+                    err_msg, _ = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
                     st.error(f"❌ Configuration Error: {err_msg}")
                     st.stop()
 
@@ -537,7 +569,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                     st.session_state.messages.append(msg_data)
 
                 except Exception as e:
-                    err_msg, _ = format_llm_error(e)
+                    err_msg, _ = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
                     tracker.record_error(f"Pipeline error: {err_msg}")
                     observability.log_request_metrics(tracker)
                     st.error(f"❌ {err_msg}")

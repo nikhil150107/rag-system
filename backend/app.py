@@ -241,7 +241,7 @@ def ask_question():
         client = get_current_llm_client()
         query_reformulator.llm_client = client
     except Exception as e:
-        err_msg, status_code = format_llm_error(e)
+        err_msg, status_code = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
         tracker.record_error(f"LLM client init failed: {err_msg}")
         observability.log_request_metrics(tracker)
         return jsonify({
@@ -352,7 +352,7 @@ def ask_question():
                 "sources": ui_sources
             }), 200
         except Exception as e:
-            err_msg, status_code = format_llm_error(e)
+            err_msg, status_code = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
             logger.error(f"Grok LLM call failed: {err_msg}")
             tracker.record_error(f"LLM call failed: {err_msg}")
             observability.log_request_metrics(tracker)
@@ -390,7 +390,7 @@ def ask_question():
                 "sources": []
             }), 200
         except Exception as e:
-            err_msg, status_code = format_llm_error(e)
+            err_msg, status_code = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
             logger.error(f"Grok LLM fallback call failed: {err_msg}")
             tracker.record_error(f"LLM fallback call failed: {err_msg}")
             observability.log_request_metrics(tracker)

@@ -63,17 +63,21 @@ def _sanitize_error_text(text: str) -> str:
     return text.strip()
 
 
-def format_llm_error(error: Exception) -> Tuple[str, int]:
+def format_llm_error(
+    error: Exception,
+    model: Optional[str] = None,
+    endpoint: Optional[str] = None
+) -> Tuple[str, int]:
     """
     Sanitize and categorize LLM provider errors without exposing sensitive API keys.
     Returns (user_facing_message, http_status_code).
     """
     if isinstance(error, AuthenticationError):
-        return ("xAI Grok Authentication failed. Please verify your XAI_API_KEY.", 401)
+        return ("xAI Grok Authentication failed. Please verify your XAI_API_KEY in Streamlit Secrets.", 401)
     if isinstance(error, RateLimitError):
         return ("xAI Grok rate limit or quota exceeded. Please try again shortly.", 429)
     if isinstance(error, APIConnectionError):
-        return ("Failed to connect to xAI Grok API endpoint. Please check network connectivity.", 503)
+        return ("Failed to connect to xAI Grok API endpoint (https://api.x.ai/v1). Please check network connectivity.", 503)
     if isinstance(error, APIError):
         status_code = getattr(error, "status_code", 500) or 500
         body = getattr(error, "body", None)
@@ -91,9 +95,100 @@ def format_llm_error(error: Exception) -> Tuple[str, int]:
             msg_detail = getattr(error, "message", "") or str(error)
 
         sanitized_msg = _sanitize_error_text(msg_detail)
+        meta_info = []
+        if model:
+            meta_info.append(f"Model: `{model}`")
+        if endpoint:
+            meta_info.append(f"Endpoint: `{endpoint}`")
+        meta_str = f" ({', '.join(meta_info)})" if meta_info else ""
+
         if status_code == 400:
-            return (f"xAI API 400 Bad Request:\n{sanitized_msg}", 400)
-        return (f"xAI Grok Provider Error (Status {status_code}):\n{sanitized_msg}", status_code)
+            return (f"xAI API 400 Bad Request{meta_str}:\n{sanitized_msg}", 400)
+        return (f"xAI Grok Provider Error (Status {status_code}){meta_str}:\n{sanitized_msg}", status_code)
 
     sanitized_generic = _sanitize_error_text(str(error))
     return (f"An unexpected error occurred during LLM processing: {sanitized_generic}", 500)
+
+
+def run_diagnostic_probe(
+    client: OpenAI,
+    model: str = DEFAULT_LLM_MODEL
+) -> Dict[str, Any]:
+    """
+    Execute progressive API probes to test model, sampling parameters,
+    and structured output compatibility on xAI Grok API.
+    """
+    results = {"model": model, "endpoint": "https://api.x.ai/v1/chat/completions", "steps": {}}
+
+    # Step 1: Minimal request
+    try:
+        r1 = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Say hello in one short sentence."}]
+        )
+        results["steps"]["1_minimal"] = {
+            "status": "PASS",
+            "output": r1.choices[0].message.content.strip()
+        }
+    except Exception as e:
+        err_msg, code = format_llm_error(e, model=model)
+        results["steps"]["1_minimal"] = {"status": "FAIL", "error": err_msg, "code": code}
+        return results
+
+    # Step 2: Sampling parameters (temperature=0.3, max_tokens=500)
+    try:
+        r2 = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "Say hello in one short sentence."}],
+            temperature=0.3,
+            max_tokens=500
+        )
+        results["steps"]["2_sampling_params"] = {
+            "status": "PASS",
+            "output": r2.choices[0].message.content.strip()
+        }
+    except Exception as e:
+        err_msg, code = format_llm_error(e, model=model)
+        results["steps"]["2_sampling_params"] = {"status": "FAIL", "error": err_msg, "code": code}
+        return results
+
+    # Step 3: Structured output (json_object)
+    try:
+        r3 = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a JSON assistant. Output valid JSON."},
+                {"role": "user", "content": "Return a JSON object with key 'status' and value 'ok'."}
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.0,
+            max_tokens=150
+        )
+        results["steps"]["3_structured_json"] = {
+            "status": "PASS",
+            "output": r3.choices[0].message.content.strip()
+        }
+    except Exception as e:
+        err_msg, code = format_llm_error(e, model=model)
+        results["steps"]["3_structured_json"] = {"status": "FAIL", "error": err_msg, "code": code}
+
+    # Step 4: Grounded context prompt
+    try:
+        r4 = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "Answer ONLY using provided document context."},
+                {"role": "user", "content": "DOCUMENT CONTEXT:\n[Source 1: test.txt]\nProject Titan has 99.9% uptime.\n\nUSER QUESTION:\nWhat is the uptime?"}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        results["steps"]["4_grounded_prompt"] = {
+            "status": "PASS",
+            "output": r4.choices[0].message.content.strip()
+        }
+    except Exception as e:
+        err_msg, code = format_llm_error(e, model=model)
+        results["steps"]["4_grounded_prompt"] = {"status": "FAIL", "error": err_msg, "code": code}
+
+    return results
