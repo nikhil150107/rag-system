@@ -18,9 +18,15 @@ from .llm import (
     get_llm_config,
     format_llm_error,
     run_diagnostic_probe,
+    check_ollama_health,
+    normalize_ollama_base_url,
     DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_BASE_URL,
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_OLLAMA_BASE_URL,
+    DEFAULT_DEEPSEEK_MODEL,
+    DEFAULT_DEEPSEEK_BASE_URL,
 )
 
 __all__ = [
@@ -44,7 +50,13 @@ __all__ = [
     "get_llm_config",
     "format_llm_error",
     "run_diagnostic_probe",
+    "check_ollama_health",
+    "normalize_ollama_base_url",
     "DEFAULT_LLM_PROVIDER",
     "DEFAULT_LLM_MODEL",
     "DEFAULT_LLM_BASE_URL",
+    "DEFAULT_OLLAMA_MODEL",
+    "DEFAULT_OLLAMA_BASE_URL",
+    "DEFAULT_DEEPSEEK_MODEL",
+    "DEFAULT_DEEPSEEK_BASE_URL",
 ]

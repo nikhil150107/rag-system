@@ -34,8 +34,13 @@ from rag import (
     get_llm_client,
     get_llm_config,
     format_llm_error,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_BASE_URL,
+    DEFAULT_OLLAMA_MODEL,
+    DEFAULT_OLLAMA_BASE_URL,
+    DEFAULT_DEEPSEEK_MODEL,
+    DEFAULT_DEEPSEEK_BASE_URL,
 )
 
 # Configure logging
@@ -64,11 +69,11 @@ RAG_OBSERVABILITY_ENABLED = os.getenv("RAG_OBSERVABILITY_ENABLED", "true").lower
 RAG_METRICS_PATH = os.getenv("RAG_METRICS_PATH", "./logs/rag_metrics.jsonl")
 RAG_LOG_QUESTIONS = os.getenv("RAG_LOG_QUESTIONS", "false").lower() in ("true", "1", "yes")
 
-# DeepSeek LLM configuration
+# LLM configuration (Ollama / DeepSeek)
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", DEFAULT_LLM_PROVIDER)
+LLM_BASE_URL = os.getenv("LLM_BASE_URL") or (DEFAULT_OLLAMA_BASE_URL if LLM_PROVIDER == "ollama" else DEFAULT_DEEPSEEK_BASE_URL)
+LLM_MODEL = os.getenv("LLM_MODEL") or (DEFAULT_OLLAMA_MODEL if LLM_PROVIDER == "ollama" else DEFAULT_DEEPSEEK_MODEL)
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY")
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
-LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 
 # Resolve vector db path
 vector_db_path = Path(VECTOR_DB_PATH_RAW)
@@ -84,7 +89,7 @@ uploads_dir = (BASE_DIR / "uploads").resolve()
 uploads_dir.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------
-# 2. Initialization: ChromaDB, EmbeddingService, Reranker, Retriever, DeepSeek LLM, Observability, Flask
+# 2. Initialization: ChromaDB, EmbeddingService, Reranker, Retriever, LLM, Observability, Flask
 # ---------------------------------------------------------
 chroma_client = chromadb.PersistentClient(path=str(vector_db_path))
 embedding_service = EmbeddingService(model_name=EMBEDDING_MODEL_NAME)
@@ -103,11 +108,10 @@ retriever = RAGRetriever(
 )
 
 llm_client = None
-if DEEPSEEK_API_KEY:
-    try:
-        llm_client = get_llm_client(api_key=DEEPSEEK_API_KEY, base_url=LLM_BASE_URL)
-    except Exception as e:
-        logger.warning(f"Could not pre-initialize LLM client: {str(e)}")
+try:
+    llm_client = get_llm_client(provider=LLM_PROVIDER, api_key=DEEPSEEK_API_KEY, base_url=LLM_BASE_URL)
+except Exception as e:
+    logger.warning(f"Could not pre-initialize LLM client: {str(e)}")
 
 query_reformulator = QueryReformulator(
     llm_client=llm_client,
@@ -129,13 +133,13 @@ CORS(app)
 # Helper Functions
 # ---------------------------------------------------------
 def get_current_llm_client() -> OpenAI:
-    """Retrieve or dynamically initialize the DeepSeek LLM client."""
+    """Retrieve or dynamically initialize the LLM client."""
     global llm_client
     if llm_client is not None:
         query_reformulator.llm_client = llm_client
         return llm_client
 
-    llm_client = get_llm_client(base_url=LLM_BASE_URL)
+    llm_client = get_llm_client(provider=LLM_PROVIDER, api_key=DEEPSEEK_API_KEY, base_url=LLM_BASE_URL)
     query_reformulator.llm_client = llm_client
     return llm_client
 

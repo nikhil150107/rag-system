@@ -1,6 +1,6 @@
-# Document Q&A RAG Assistant (Powered by DeepSeek)
+# Document Q&A RAG Assistant (Ollama & DeepSeek)
 
-A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation via **DeepSeek** (`deepseek-chat`), and telemetry observability.
+A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation via **Local Ollama** (`llama3.2:3b`) or **DeepSeek Cloud** (`deepseek-chat`), and telemetry observability.
 
 ---
 
@@ -9,7 +9,7 @@ A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversa
 ```
 User Question + Conversation History
                ↓
-1. Multi-Turn Query Reformulator (DeepSeek deepseek-chat)
+1. Multi-Turn Query Reformulator (Ollama llama3.2:3b / DeepSeek deepseek-chat)
                ↓ [Standalone Search Query]
 2. Dense Bi-Encoder Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)
                ↓ [Top-8 Candidates]
@@ -17,10 +17,36 @@ User Question + Conversation History
                ↓ [Surviving Candidates]
 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)
                ↓ [Top-5 Relevant Chunks]
-5. Grounded LLM Generation (DeepSeek deepseek-chat with Document Context)
+5. Grounded LLM Generation (Local Ollama / DeepSeek with Document Context)
                ↓
 Answer + Sources (Vector Distance & Reranker Score) + Telemetry
 ```
+
+---
+
+## 💻 Local Execution with Ollama (Zero Cost, Fully Private)
+
+### 1. Install & Pull Model in Ollama
+```powershell
+# Ensure Ollama is running
+ollama --version
+
+# Pull the lightweight 3B model
+ollama pull llama3.2:3b
+```
+
+### 2. Configure `.env`
+```ini
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=llama3.2:3b
+```
+
+### 3. Start Streamlit App
+```powershell
+streamlit run frontend/app.py
+```
+*Opens automatically at `http://localhost:8501`. Switch between Ollama (Local) and DeepSeek (Cloud) directly in the sidebar.*
 
 ---
 
@@ -42,12 +68,12 @@ The application runs as a **standalone, self-contained Streamlit application** o
 
 3. **Configure Secrets**:
    - Click **Advanced Settings** $\to$ **Secrets**.
-   - Add your DeepSeek API key and configuration in TOML format:
+   - Add your DeepSeek API key and configuration in TOML format for Cloud deployment:
      ```toml
      DEEPSEEK_API_KEY = "your-deepseek-api-key"
      LLM_PROVIDER = "deepseek"
-     LLM_BASE_URL = "https://api.deepseek.com"
-     LLM_MODEL = "deepseek-chat"
+     DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+     DEEPSEEK_MODEL = "deepseek-chat"
      ```
    - *(Optional pipeline parameter overrides can also be added here if desired)*:
      ```toml
@@ -61,65 +87,13 @@ The application runs as a **standalone, self-contained Streamlit application** o
 
 ---
 
-## 🚀 Running Locally
-
-### 1. Setup Virtual Environment
-```powershell
-# Navigate to project directory
-cd C:\Users\nikhi\OneDrive\Desktop\rag-system
-
-# Activate virtual environment
-.\venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Configure `.env`
-Create `.env` in the root folder (or copy from `.env.example`):
-```ini
-DEEPSEEK_API_KEY=your-deepseek-api-key-here
-LLM_PROVIDER=deepseek
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-chat
-VECTOR_DB_PATH=./vectorstore
-EMBEDDING_MODEL=all-MiniLM-L6-v2
-RAG_DISTANCE_THRESHOLD=0.6
-RAG_INITIAL_RETRIEVAL_K=8
-RAG_FINAL_CONTEXT_K=5
-RAG_RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
-RAG_CONVERSATION_TURNS=5
-RAG_OBSERVABILITY_ENABLED=true
-RAG_METRICS_PATH=./logs/rag_metrics.jsonl
-RAG_LOG_QUESTIONS=false
-```
-
-### 3. Start Streamlit App
-```powershell
-streamlit run frontend/app.py
-```
-*Opens automatically at `http://localhost:8501`.*
-
-*(Optional) If you also want to run the REST API backend for automated testing or external API consumers:*
-```powershell
-python backend/app.py
-```
-
----
-
 ## 🧪 Automated Testing & Evaluation
 
 ### Run Test Suite
 ```powershell
 pytest tests/ -v
 ```
-*Executes all unit, integration, evaluation, and hallucination test cases.*
-
-### Run Retrieval Evaluation
-```powershell
-python evaluation/retrieval_evaluator.py
-```
-*Calculates Recall@1, Recall@3, Recall@5, and MRR across Vector, Threshold, and Cross-Encoder stages.*
+*Executes all unit, integration, evaluation, and hallucination test cases using offline mocks (no live LLM / network calls required).*
 
 ---
 
@@ -127,10 +101,12 @@ python evaluation/retrieval_evaluator.py
 
 | Variable / Secret | Description | Default |
 | :--- | :--- | :--- |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key for reformulation and generation | *(Required)* |
-| `LLM_PROVIDER` | LLM Provider identifier | `deepseek` |
-| `LLM_BASE_URL` | DeepSeek OpenAI-compatible API base URL | `https://api.deepseek.com` |
-| `LLM_MODEL` | DeepSeek LLM model name | `deepseek-chat` |
+| `LLM_PROVIDER` | LLM Provider identifier (`ollama` or `deepseek`) | `ollama` |
+| `OLLAMA_BASE_URL` | Local Ollama base URL | `http://localhost:11434` |
+| `OLLAMA_MODEL` | Local Ollama model identifier | `llama3.2:3b` |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key (Required for Cloud mode) | *(Optional in local mode)* |
+| `DEEPSEEK_BASE_URL` | DeepSeek OpenAI-compatible API base URL | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | DeepSeek LLM model name | `deepseek-chat` |
 | `EMBEDDING_MODEL` | Bi-Encoder sentence-transformers model | `all-MiniLM-L6-v2` |
 | `RAG_RERANKER_MODEL` | Hugging Face Cross-Encoder model | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `0.6` |

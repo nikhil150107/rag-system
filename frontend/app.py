@@ -1,7 +1,7 @@
 """Document Q&A RAG Assistant - Standalone Streamlit Application.
 
 Executes the modular RAG pipeline directly in-process with singleton model caching
-via @st.cache_resource and DeepSeek API (deepseek-chat) for high performance.
+via @st.cache_resource, supporting both local Ollama (llama3.2:3b) and DeepSeek Cloud (deepseek-chat).
 """
 import os
 import sys
@@ -51,9 +51,15 @@ try:
         get_llm_config,
         format_llm_error,
         run_diagnostic_probe,
+        check_ollama_health,
+        normalize_ollama_base_url,
         DEFAULT_LLM_PROVIDER,
         DEFAULT_LLM_MODEL,
         DEFAULT_LLM_BASE_URL,
+        DEFAULT_OLLAMA_MODEL,
+        DEFAULT_OLLAMA_BASE_URL,
+        DEFAULT_DEEPSEEK_MODEL,
+        DEFAULT_DEEPSEEK_BASE_URL,
     )
 except ImportError:
     from backend.rag import (
@@ -72,16 +78,22 @@ except ImportError:
         get_llm_config,
         format_llm_error,
         run_diagnostic_probe,
+        check_ollama_health,
+        normalize_ollama_base_url,
         DEFAULT_LLM_PROVIDER,
         DEFAULT_LLM_MODEL,
         DEFAULT_LLM_BASE_URL,
+        DEFAULT_OLLAMA_MODEL,
+        DEFAULT_OLLAMA_BASE_URL,
+        DEFAULT_DEEPSEEK_MODEL,
+        DEFAULT_DEEPSEEK_BASE_URL,
     )
 
 # ---------------------------------------------------------
 # 2. Page Configuration & Setup
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Document Q&A RAG Assistant (DeepSeek)",
+    page_title="Document Q&A RAG Assistant",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -191,10 +203,8 @@ rag_components = get_rag_components()
 retriever = rag_components["retriever"]
 observability = rag_components["observability"]
 
-# Provider settings
-LLM_PROVIDER = resolve_llm_setting("LLM_PROVIDER", DEFAULT_LLM_PROVIDER)
-LLM_BASE_URL = resolve_llm_setting("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
-LLM_MODEL = resolve_llm_setting("LLM_MODEL", DEFAULT_LLM_MODEL)
+# Initial Provider configuration from environment
+LLM_PROVIDER_ENV = resolve_llm_setting("LLM_PROVIDER", DEFAULT_LLM_PROVIDER).lower().strip()
 
 
 # ---------------------------------------------------------
@@ -234,23 +244,24 @@ def render_sources(sources: List[Dict[str, Any]]):
                 st.divider()
 
 
-def render_rag_pipeline_info(msg: Dict[str, Any]):
+def render_rag_pipeline_info(msg: Dict[str, Any], active_model_name: str = DEFAULT_LLM_MODEL):
     """Render RAG pipeline execution diagnostics and latency metrics."""
     req_id = msg.get("request_id")
     search_query = msg.get("search_query")
     context_found = msg.get("context_found")
     sources = msg.get("sources", [])
     latency_breakdown = msg.get("latency_breakdown", {})
+    provider_name = msg.get("provider", "LLM")
 
     with st.expander("🔧 RAG Pipeline & Telemetry", expanded=False):
         st.markdown("**Pipeline Execution Architecture:**")
         st.code(
             f"User Question + History\n"
-            f"  ↳ 1. Multi-Turn Query Reformulator ({LLM_MODEL})\n"
+            f"  ↳ 1. Multi-Turn Query Reformulator ({active_model_name})\n"
             f"  ↳ 2. Dense Vector Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)\n"
             f"  ↳ 3. Cosine Distance Threshold Filter (<= 0.6)\n"
             f"  ↳ 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)\n"
-            f"  ↳ 5. Grounded Context-Bound Generation ({LLM_MODEL})",
+            f"  ↳ 5. Grounded Context-Bound Generation ({active_model_name})",
             language="text"
         )
         col_a, col_b = st.columns(2)
@@ -271,7 +282,7 @@ def render_rag_pipeline_info(msg: Dict[str, Any]):
             with l_cols[1]:
                 st.metric("Retrieval + Rerank", f"{latency_breakdown.get('retrieval_ms', 0):.0f} ms")
             with l_cols[2]:
-                st.metric("DeepSeek Generation", f"{latency_breakdown.get('llm_ms', 0):.0f} ms")
+                st.metric(f"{provider_name.capitalize()} Generation", f"{latency_breakdown.get('llm_ms', 0):.0f} ms")
 
 
 # ---------------------------------------------------------
@@ -280,23 +291,61 @@ def render_rag_pipeline_info(msg: Dict[str, Any]):
 with st.sidebar:
     st.title("⚙️ RAG System")
 
+    # LLM Provider Selection Toggle
+    default_provider_index = 0 if LLM_PROVIDER_ENV == "ollama" else 1
+    selected_provider_label = st.radio(
+        "🤖 **LLM Provider**",
+        options=["Ollama (Local)", "DeepSeek (Cloud)"],
+        index=default_provider_index,
+        help="Select local Ollama for zero-cost offline inference or DeepSeek Cloud for hosted API inference."
+    )
+    is_ollama = "Ollama" in selected_provider_label
+    active_provider = "ollama" if is_ollama else "deepseek"
+
+    # Resolve settings for the active provider
+    if is_ollama:
+        raw_ollama_url = resolve_llm_setting("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+        active_base_url = normalize_ollama_base_url(raw_ollama_url)
+        active_model = resolve_llm_setting("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+        active_api_key = "ollama"
+    else:
+        raw_deepseek_url = resolve_llm_setting("DEEPSEEK_BASE_URL", resolve_llm_setting("LLM_BASE_URL", DEFAULT_DEEPSEEK_BASE_URL))
+        active_base_url = raw_deepseek_url.rstrip("/")
+        active_model = resolve_llm_setting("DEEPSEEK_MODEL", resolve_llm_setting("LLM_MODEL", DEFAULT_DEEPSEEK_MODEL))
+        active_api_key = get_deepseek_api_key()
+
     # Component Status Indicator
     st.success("🟢 **RAG Pipeline Active (In-Process)**")
     with st.expander("System Components Health", expanded=False):
         st.markdown("- **Vectorstore:** `ChromaDB PersistentClient (Active)`")
         st.markdown("- **Embedding Model:** `all-MiniLM-L6-v2 (Loaded)`")
         st.markdown("- **Cross-Encoder:** `ms-marco-MiniLM-L-6-v2 (Loaded)`")
-        st.markdown(f"- **LLM Provider:** `DeepSeek ({LLM_MODEL})`")
-        st.markdown(f"- **Base URL:** `{LLM_BASE_URL}`")
+        st.markdown(f"- **LLM Provider:** `{selected_provider_label}`")
+        st.markdown(f"- **Model:** `{active_model}`")
+        st.markdown(f"- **Base URL:** `{active_base_url}`")
         st.markdown("- **Execution Mode:** `In-Process Singleton (@st.cache_resource)`")
 
+        # Live Ollama Health Check
+        if is_ollama:
+            health = check_ollama_health(base_url=active_base_url, target_model=active_model)
+            if health["reachable"]:
+                st.markdown("🟢 **Ollama Daemon:** `Running (Reachable)`")
+                if health["target_model_present"]:
+                    st.markdown(f"🟢 **Target Model:** `{active_model} (Installed)`")
+                else:
+                    st.markdown(f"🟡 **Target Model:** `{active_model} (Not found in {health['models']})`")
+            else:
+                st.markdown(f"🔴 **Ollama Daemon:** `Not Reachable ({health.get('error')})`")
+
         # Diagnostic Probe Button
-        test_api_key = get_deepseek_api_key()
-        if test_api_key:
-            if st.button("🧪 Run DeepSeek Connection Test", key="run_probe_btn", use_container_width=True):
-                with st.spinner("Executing progressive API connection probes..."):
-                    probe_client = OpenAI(api_key=test_api_key, base_url=LLM_BASE_URL)
-                    probe_results = run_diagnostic_probe(client=probe_client, model=LLM_MODEL)
+        probe_button_label = "🧪 Run Ollama Connection Test" if is_ollama else "🧪 Run DeepSeek Connection Test"
+        can_run_probe = is_ollama or bool(active_api_key)
+
+        if can_run_probe:
+            if st.button(probe_button_label, key="run_probe_btn", use_container_width=True):
+                with st.spinner(f"Executing progressive API connection probes to {active_provider.upper()}..."):
+                    probe_client = get_llm_client(provider=active_provider, api_key=active_api_key, base_url=active_base_url)
+                    probe_results = run_diagnostic_probe(client=probe_client, model=active_model, provider=active_provider)
                     all_passed = True
                     for step_name, step_info in probe_results["steps"].items():
                         if step_info["status"] == "PASS":
@@ -305,23 +354,25 @@ with st.sidebar:
                             all_passed = False
                             st.error(f"❌ `{step_name}` Failed: {step_info.get('error')}")
                     if all_passed:
-                        st.success(f"🎉 All probes passed successfully with model `{LLM_MODEL}`!")
+                        st.success(f"🎉 All probes passed successfully with {active_provider} model `{active_model}`!")
 
-    # API Key Configuration
-    api_key = get_deepseek_api_key()
-    if not api_key:
-        st.warning("⚠️ **DeepSeek API Key Missing**")
-        user_key = st.text_input(
-            "Enter DeepSeek API Key",
-            type="password",
-            help="Set DEEPSEEK_API_KEY in .env, Streamlit Secrets, or paste here for this session.",
-            key="user_key_input"
-        )
-        if user_key:
-            st.session_state["user_deepseek_api_key"] = user_key
-            st.rerun()
+    # Provider-specific Authentication / Key handling
+    if is_ollama:
+        st.caption("💻 **Local Inference:** No API key required")
     else:
-        st.caption("🔑 DeepSeek API Key configured")
+        if not active_api_key:
+            st.warning("⚠️ **DeepSeek API Key Missing**")
+            user_key = st.text_input(
+                "Enter DeepSeek API Key",
+                type="password",
+                help="Set DEEPSEEK_API_KEY in .env, Streamlit Secrets, or paste here for this session.",
+                key="user_key_input"
+            )
+            if user_key:
+                st.session_state["user_deepseek_api_key"] = user_key
+                st.rerun()
+        else:
+            st.caption("🔑 DeepSeek API Key configured")
 
     st.divider()
 
@@ -416,9 +467,9 @@ with st.sidebar:
 # ---------------------------------------------------------
 st.title("📚 Document Q&A RAG Assistant")
 st.markdown(
-    f"**Enterprise Retrieval-Augmented Generation Platform (Powered by DeepSeek)** — "
+    f"**Enterprise Retrieval-Augmented Generation Platform (Powered by {active_provider.capitalize()}: `{active_model}`)** — "
     "Ask questions grounded strictly in your uploaded documents. "
-    "Features **Conversational Memory**, **Multi-Turn Query Reformulation**, **Dense Bi-Encoder Retrieval**, **Cross-Encoder Re-Ranking**, and **DeepSeek Generation**."
+    "Features **Conversational Memory**, **Multi-Turn Query Reformulation**, **Dense Bi-Encoder Retrieval**, **Cross-Encoder Re-Ranking**, and **Grounded Generation**."
 )
 
 st.divider()
@@ -439,16 +490,15 @@ for msg in st.session_state.messages:
             elif msg.get("context_found") is False:
                 st.caption("⚠️ *Answered using general assistant fallback (no matching document context found).*")
 
-            render_rag_pipeline_info(msg)
+            render_rag_pipeline_info(msg, active_model_name=active_model)
 
 
 # ---------------------------------------------------------
 # 7. Question Submission & Direct RAG Pipeline Execution
 # ---------------------------------------------------------
 if prompt := st.chat_input("Ask a question about your uploaded documents..."):
-    current_api_key = get_deepseek_api_key()
-    if not current_api_key:
-        st.error("❌ DEEPSEEK_API_KEY is required to ask questions. Please configure it in Streamlit Secrets or sidebar.")
+    if not is_ollama and not active_api_key:
+        st.error("❌ DEEPSEEK_API_KEY is required to ask questions in Cloud mode. Please configure it in Streamlit Secrets or sidebar.")
     else:
         # Build prior conversation history (excluding the current prompt)
         prior_history = [
@@ -464,18 +514,22 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
 
         # Execute in-process RAG pipeline
         with st.chat_message("assistant"):
-            with st.spinner("Retrieving relevant passages, re-ranking with Cross-Encoder, and generating answer with DeepSeek..."):
+            with st.spinner(f"Retrieving relevant passages, re-ranking with Cross-Encoder, and generating answer with {active_provider.capitalize()} ({active_model})..."):
                 tracker = observability.start_request(question=prompt)
                 try:
-                    llm_client = get_llm_client(api_key=current_api_key, base_url=LLM_BASE_URL)
+                    llm_client = get_llm_client(
+                        provider=active_provider,
+                        api_key=active_api_key,
+                        base_url=active_base_url
+                    )
                 except Exception as e:
-                    err_msg, _ = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
+                    err_msg, _ = format_llm_error(e, model=active_model, endpoint=active_base_url, provider=active_provider)
                     st.error(f"❌ Configuration Error: {err_msg}")
                     st.stop()
 
                 query_reformulator = QueryReformulator(
                     llm_client=llm_client,
-                    model=LLM_MODEL,
+                    model=active_model,
                     max_history_turns=int(os.getenv("RAG_CONVERSATION_TURNS", 5))
                 )
 
@@ -534,7 +588,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
 
                         t_llm_start = time.perf_counter()
                         response = llm_client.chat.completions.create(
-                            model=LLM_MODEL,
+                            model=active_model,
                             messages=llm_messages,
                             max_tokens=500,
                             temperature=0.3
@@ -549,7 +603,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
 
                         t_llm_start = time.perf_counter()
                         response = llm_client.chat.completions.create(
-                            model=LLM_MODEL,
+                            model=active_model,
                             messages=llm_messages,
                             max_tokens=500,
                             temperature=0.3
@@ -577,6 +631,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                     msg_data = {
                         "role": "assistant",
                         "content": answer_text,
+                        "provider": active_provider,
                         "context_found": context_found,
                         "search_query": search_query,
                         "request_id": tracker.request_id,
@@ -587,13 +642,13 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                             "llm_ms": llm_latency_ms
                         }
                     }
-                    render_rag_pipeline_info(msg_data)
+                    render_rag_pipeline_info(msg_data, active_model_name=active_model)
 
                     # Save assistant message to session state
                     st.session_state.messages.append(msg_data)
 
                 except Exception as e:
-                    err_msg, _ = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
+                    err_msg, _ = format_llm_error(e, model=active_model, endpoint=active_base_url, provider=active_provider)
                     tracker.record_error(f"Pipeline error: {err_msg}")
                     observability.log_request_metrics(tracker)
                     st.error(f"❌ {err_msg}")

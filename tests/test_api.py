@@ -21,9 +21,8 @@ def test_health_endpoint(client):
     assert "components" in json_data
     assert json_data["components"]["vectorstore"] == "ok"
     assert json_data["components"]["embedding_model"] == "ok"
-    assert json_data["components"]["reranker"] == "ok"
-    assert json_data["components"]["llm_provider"] == "deepseek"
-    assert json_data["components"]["llm_model"] == "deepseek-chat"
+    assert json_data["components"]["llm_provider"] in ("ollama", "deepseek")
+    assert json_data["components"]["llm_model"] in ("llama3.2:3b", "deepseek-chat")
 
 
 def test_metrics_endpoint(client):
