@@ -30,7 +30,7 @@ class RAGRetriever:
         embedding_service: Optional[EmbeddingService] = None,
         chunker: Optional[RecursiveChunker] = None,
         reranker_service: Optional[RerankerService] = None,
-        distance_threshold: float = 0.6,
+        distance_threshold: Optional[float] = None,
         initial_retrieval_k: int = 8,
         final_context_k: int = 5
     ):
@@ -43,7 +43,11 @@ class RAGRetriever:
         self.embedding_service = embedding_service or EmbeddingService()
         self.chunker = chunker or RecursiveChunker()
         self.reranker_service = reranker_service or RerankerService()
-        self.distance_threshold = float(distance_threshold)
+        if distance_threshold is not None:
+            self.distance_threshold = float(distance_threshold)
+        else:
+            import os
+            self.distance_threshold = float(os.getenv("RAG_DISTANCE_THRESHOLD", 1.0))
         self.initial_retrieval_k = int(initial_retrieval_k)
         self.final_context_k = int(final_context_k)
 

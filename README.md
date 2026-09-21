@@ -13,7 +13,7 @@ User Question + Conversation History
                ↓ [Standalone Search Query]
 2. Dense Bi-Encoder Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)
                ↓ [Top-8 Candidates]
-3. Cosine Distance Threshold Filtering (<= 0.6)
+3. Cosine Distance Threshold Filtering (<= 1.0)
                ↓ [Surviving Candidates]
 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)
                ↓ [Top-5 Relevant Chunks]
@@ -77,7 +77,7 @@ The application runs as a **standalone, self-contained Streamlit application** o
      ```
    - *(Optional pipeline parameter overrides can also be added here if desired)*:
      ```toml
-     RAG_DISTANCE_THRESHOLD = "0.6"
+     RAG_DISTANCE_THRESHOLD = "1.0"
      RAG_INITIAL_RETRIEVAL_K = "8"
      RAG_FINAL_CONTEXT_K = "5"
      ```
@@ -109,7 +109,7 @@ pytest tests/ -v
 | `DEEPSEEK_MODEL` | DeepSeek LLM model name | `deepseek-chat` |
 | `EMBEDDING_MODEL` | Bi-Encoder sentence-transformers model | `all-MiniLM-L6-v2` |
 | `RAG_RERANKER_MODEL` | Hugging Face Cross-Encoder model | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
-| `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `0.6` |
+| `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `1.0` |
 | `RAG_INITIAL_RETRIEVAL_K` | Initial candidates retrieved from ChromaDB | `8` |
 | `RAG_FINAL_CONTEXT_K` | Top-$k$ chunks passed to the LLM | `5` |
 | `RAG_CONVERSATION_TURNS` | Number of recent conversation turns to retain | `5` |

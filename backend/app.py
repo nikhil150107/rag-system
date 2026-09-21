@@ -60,7 +60,7 @@ else:
 FLASK_PORT = int(os.getenv("PORT", os.getenv("FLASK_PORT", 5000)))
 VECTOR_DB_PATH_RAW = os.getenv("VECTOR_DB_PATH", "./vectorstore")
 EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.6))
+RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", 1.0))
 RAG_INITIAL_RETRIEVAL_K = int(os.getenv("RAG_INITIAL_RETRIEVAL_K", 8))
 RAG_FINAL_CONTEXT_K = int(os.getenv("RAG_FINAL_CONTEXT_K", 5))
 RAG_RERANKER_MODEL = os.getenv("RAG_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")

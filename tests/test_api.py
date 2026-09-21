@@ -6,11 +6,28 @@ import uuid
 import app as flask_app_module
 
 
+import chromadb
+from rag.retriever import RAGRetriever
+
+
 @pytest.fixture
 def client():
     flask_app_module.app.config["TESTING"] = True
+    temp_chroma = chromadb.EphemeralClient()
+    original_retriever = flask_app_module.retriever
+    flask_app_module.retriever = RAGRetriever(
+        chroma_client=temp_chroma,
+        collection_name="test_documents",
+        embedding_service=flask_app_module.embedding_service,
+        chunker=flask_app_module.chunker,
+        reranker_service=flask_app_module.reranker_service,
+        distance_threshold=1.0,
+        initial_retrieval_k=8,
+        final_context_k=5
+    )
     with flask_app_module.app.test_client() as client:
         yield client
+    flask_app_module.retriever = original_retriever
 
 
 def test_health_endpoint(client):

@@ -125,7 +125,7 @@ def get_rag_components() -> Dict[str, Any]:
 
     embedding_model_name = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
     reranker_model_name = os.getenv("RAG_RERANKER_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2")
-    dist_threshold = float(os.getenv("RAG_DISTANCE_THRESHOLD", 0.6))
+    dist_threshold = float(os.getenv("RAG_DISTANCE_THRESHOLD", 1.0))
     initial_k = int(os.getenv("RAG_INITIAL_RETRIEVAL_K", 8))
     final_k = int(os.getenv("RAG_FINAL_CONTEXT_K", 5))
 

@@ -94,7 +94,7 @@ def test_retrieval_threshold_filtering(in_memory_retriever):
     pages = [ParsedPage(page_number=None, text="Python Flask and ChromaDB architecture details.")]
     in_memory_retriever.ingest_document(file_bytes, filename, pages)
 
-    # Retrieval with threshold 0.6
+    # Retrieval with threshold 1.0
     res = in_memory_retriever.retrieve("Flask architecture", top_k_candidates=8, max_selected_chunks=5)
     # Regardless of mock distance, verify structure
     assert "context_found" in res
@@ -105,3 +105,26 @@ def test_retrieval_threshold_filtering(in_memory_retriever):
             assert src["distance"] <= in_memory_retriever.distance_threshold
             assert "snippet" in src
             assert "filename" in src
+
+
+def test_broad_thematic_query_retrieval():
+    """Regression test: verify broad/meta queries (e.g. 'which topic is covered in this pdf?') retrieve candidates successfully."""
+    client = chromadb.EphemeralClient()
+    mock_emb = MockEmbeddingService()
+    retriever = RAGRetriever(
+        chroma_client=client,
+        collection_name="broad_query_test",
+        embedding_service=mock_emb,
+        chunker=RecursiveChunker(target_tokens=50, overlap_tokens=10),
+        distance_threshold=1.0
+    )
+    file_bytes = b"Design and Analysis of Algorithms Assignment: Matrix Chain Multiplication using Dynamic Programming."
+    filename = "DAA exp 6.pdf"
+    pages = [ParsedPage(page_number=1, text=file_bytes.decode('utf-8'))]
+    retriever.ingest_document(file_bytes, filename, pages)
+
+    # Broad query
+    res = retriever.retrieve("which topic is covered in this pdf?", top_k_candidates=8, max_selected_chunks=5)
+    assert res["context_found"] is True
+    assert len(res["sources"]) >= 1
+    assert res["sources"][0]["filename"] == "DAA exp 6.pdf"
