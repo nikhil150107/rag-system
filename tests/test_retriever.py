@@ -153,3 +153,78 @@ def test_default_distance_threshold_resolution(monkeypatch):
     )
     assert retriever_env.distance_threshold == 0.85
 
+
+def test_document_isolation_filtering():
+    """Regression test: verify retrieval is strictly isolated when document_hash is provided."""
+    client = chromadb.EphemeralClient()
+    mock_emb = MockEmbeddingService()
+    retriever = RAGRetriever(
+        chroma_client=client,
+        collection_name="doc_isolation_test",
+        embedding_service=mock_emb,
+        distance_threshold=1.0
+    )
+
+    # Ingest Document A: Resume
+    resume_bytes = b"Jake Smith Software Engineer Resume: Python, Machine Learning, FastAPI, Cloud Systems."
+    resume_pages = [ParsedPage(page_number=1, text=resume_bytes.decode("utf-8"))]
+    res_a = retriever.ingest_document(resume_bytes, "resume.pdf", resume_pages)
+    hash_resume = res_a["document_id"]
+
+    # Ingest Document B: DAA
+    daa_bytes = b"Design and Analysis of Algorithms Assignment: Matrix Chain Multiplication using Dynamic Programming."
+    daa_pages = [ParsedPage(page_number=1, text=daa_bytes.decode("utf-8"))]
+    res_b = retriever.ingest_document(daa_bytes, "DAA exp 6.pdf", daa_pages)
+    hash_daa = res_b["document_id"]
+
+    assert hash_resume != hash_daa
+
+    # 1. Query with DAA document hash -> MUST ONLY return DAA chunks
+    res_query_daa = retriever.retrieve("Which topic is covered?", document_hash=hash_daa)
+    assert res_query_daa["context_found"] is True
+    assert len(res_query_daa["sources"]) >= 1
+    for src in res_query_daa["sources"]:
+        assert src["document_id"] == hash_daa
+        assert src["filename"] == "DAA exp 6.pdf"
+        assert "resume" not in src["filename"].lower()
+
+    # 2. Reverse query with Resume document hash -> MUST ONLY return Resume chunks
+    res_query_resume = retriever.retrieve("What skills are listed?", document_hash=hash_resume)
+    assert res_query_resume["context_found"] is True
+    assert len(res_query_resume["sources"]) >= 1
+    for src in res_query_resume["sources"]:
+        assert src["document_id"] == hash_resume
+        assert src["filename"] == "resume.pdf"
+        assert "daa" not in src["filename"].lower()
+
+    # 3. Query without document hash (backward compatibility) -> searches whole collection
+    res_query_all = retriever.retrieve("Software Algorithms", document_hash=None)
+    assert res_query_all["context_found"] is True
+    assert len(res_query_all["sources"]) >= 1
+
+
+def test_get_indexed_documents():
+    """Verify retriever.get_indexed_documents() returns all distinct indexed documents."""
+    client = chromadb.EphemeralClient()
+    mock_emb = MockEmbeddingService()
+    retriever = RAGRetriever(
+        chroma_client=client,
+        collection_name="get_docs_test",
+        embedding_service=mock_emb
+    )
+
+    doc1_bytes = b"Document 1 Content"
+    doc2_bytes = b"Document 2 Content Different"
+
+    retriever.ingest_document(doc1_bytes, "doc1.pdf", [ParsedPage(page_number=1, text=doc1_bytes.decode("utf-8"))])
+    retriever.ingest_document(doc2_bytes, "doc2.txt", [ParsedPage(page_number=1, text=doc2_bytes.decode("utf-8"))])
+
+    docs = retriever.get_indexed_documents()
+    assert len(docs) == 2
+    filenames = [d["filename"] for d in docs]
+    assert "doc1.pdf" in filenames
+    assert "doc2.txt" in filenames
+    assert all("document_id" in d for d in docs)
+    assert all("chunks_count" in d for d in docs)
+
+

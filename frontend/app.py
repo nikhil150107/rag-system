@@ -259,11 +259,15 @@ def render_rag_pipeline_info(
     sources = msg.get("sources", [])
     latency_breakdown = msg.get("latency_breakdown", {})
     provider_name = msg.get("provider", "LLM")
+    doc_name = msg.get("selected_document_name")
+    doc_hash = msg.get("selected_document_hash")
 
     with st.expander("🔧 RAG Pipeline & Telemetry", expanded=False):
         st.markdown("**Pipeline Execution Architecture:**")
+        filter_str = f"  ↳ 0. Document Isolation Filter: {doc_name} ({doc_hash[:8]}...)\n" if (doc_name and doc_hash) else (f"  ↳ 0. Document Isolation Filter: {doc_name or doc_hash}\n" if (doc_name or doc_hash) else "")
         st.code(
             f"User Question + History\n"
+            f"{filter_str}"
             f"  ↳ 1. Multi-Turn Query Reformulator ({active_model_name})\n"
             f"  ↳ 2. Dense Vector Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)\n"
             f"  ↳ 3. Cosine Distance Threshold Filter (<= {threshold_str})\n"
@@ -275,11 +279,19 @@ def render_rag_pipeline_info(
         with col_a:
             if req_id:
                 st.markdown(f"**Request ID:** `{req_id}`")
+            if doc_name:
+                st.markdown(f"**Selected Document:** `{doc_name}`")
+            if doc_hash:
+                st.markdown(f"**Document Hash:** `{doc_hash[:12]}...`")
             st.markdown(f"**Context Grounded:** `{'✅ True' if context_found else '❌ False (Fallback Used)'}`")
         with col_b:
             st.markdown(f"**Retrieved Sources:** `{len(sources)} chunks`")
             if search_query:
                 st.markdown(f"**Search Query Length:** `{len(search_query)} chars`")
+            if doc_name and sources:
+                matching_all = all(s.get("filename") == doc_name for s in sources if isinstance(s, dict))
+                if matching_all:
+                    st.markdown(f"**Isolation Check:** `✅ 100% {doc_name}`")
 
         if latency_breakdown:
             st.markdown("**Latency Breakdown:**")
@@ -381,17 +393,30 @@ with st.sidebar:
         else:
             st.caption("🔑 DeepSeek API Key configured")
 
-    st.divider()
+    # Document Management & Ingestion Section
+    st.subheader("📄 Document Management")
+    st.caption("Upload documents to index into ChromaDB or select an existing document.")
 
-    # Document Ingestion Section
-    st.subheader("📄 Document Ingestion")
-    st.caption("Upload PDF or TXT documents to index into ChromaDB.")
+    # 1. Discover all indexed documents from ChromaDB
+    db_indexed_docs = retriever.get_indexed_documents()
 
     uploaded_file = st.file_uploader(
-        "Select Document",
+        "Upload Document",
         type=["pdf", "txt"],
         help="Supports PDF and TXT documents. Extracted text is chunked, embedded, and deduplicated via SHA-256."
     )
+
+    if uploaded_file is not None:
+        try:
+            upload_bytes = uploaded_file.getvalue()
+            upload_hash = RAGRetriever.calculate_document_hash(upload_bytes)
+            # Pre-select uploaded document
+            if "active_doc_hash" not in st.session_state or st.session_state.get("last_uploaded_name") != uploaded_file.name:
+                st.session_state["active_doc_hash"] = upload_hash
+                st.session_state["active_doc_name"] = uploaded_file.name
+                st.session_state["last_uploaded_name"] = uploaded_file.name
+        except Exception:
+            pass
 
     if st.button("🚀 Index Document", use_container_width=True, type="primary"):
         if uploaded_file is not None:
@@ -420,21 +445,17 @@ with st.sidebar:
                     )
 
                     is_duplicate = ingest_result.get("duplicate", False)
+                    doc_id = ingest_result.get("document_id")
                     chunks_count = ingest_result.get("chunks_created", ingest_result.get("chunks_added", 0))
 
-                    # Track in session state
-                    doc_info = {
-                        "name": filename,
-                        "size_kb": round(len(file_bytes) / 1024, 1),
-                        "chunks": chunks_count,
-                        "duplicate": is_duplicate,
-                        "timestamp": datetime.now(timezone.utc).strftime("%H:%M:%S UTC")
-                    }
-                    if not any(d["name"] == filename for d in st.session_state.indexed_documents):
-                        st.session_state.indexed_documents.append(doc_info)
+                    st.session_state["active_doc_hash"] = doc_id
+                    st.session_state["active_doc_name"] = filename
+
+                    # Refresh indexed documents list from ChromaDB
+                    db_indexed_docs = retriever.get_indexed_documents()
 
                     if is_duplicate:
-                        st.info(f"ℹ️ **Duplicate Detected:** `{filename}` is already indexed. No duplicate chunks added.")
+                        st.info(f"ℹ️ **Duplicate Detected:** `{filename}` is already indexed. Active document set to `{filename}`.")
                     else:
                         st.success(f"✅ **Success:** `{filename}` indexed ({chunks_count} chunks stored).")
                 except DocumentParsingError as e:
@@ -444,13 +465,51 @@ with st.sidebar:
         else:
             st.warning("Please choose a file before clicking Index.")
 
-    # Indexed Documents List
-    if st.session_state.indexed_documents:
-        with st.expander(f"📁 Indexed Documents ({len(st.session_state.indexed_documents)})", expanded=False):
-            for doc in st.session_state.indexed_documents:
-                dup_tag = " [Duplicate]" if doc["duplicate"] else ""
-                st.markdown(f"- **`{doc['name']}`** ({doc['size_kb']} KB){dup_tag}")
-                st.caption(f"  Chunks: {doc['chunks']} | Added: {doc['timestamp']}")
+    # 2. Active Document Selector for Retrieval Isolation
+    active_doc_hash = None
+    active_doc_name = None
+
+    if db_indexed_docs:
+        doc_options = list(db_indexed_docs)
+        
+        # Determine default selection index
+        default_index = 0
+        current_hash = st.session_state.get("active_doc_hash")
+        if current_hash:
+            for idx, d in enumerate(doc_options):
+                if d["document_id"] == current_hash or d.get("document_hash") == current_hash:
+                    default_index = idx
+                    break
+
+        selected_doc = st.selectbox(
+            "🎯 **Active Document Scope**",
+            options=doc_options,
+            index=default_index,
+            format_func=lambda d: f"📄 {d['filename']} ({d['chunks_count']} chunks)",
+            help="Retrieval is strictly isolated to the selected document."
+        )
+
+        if selected_doc:
+            active_doc_hash = selected_doc["document_id"]
+            active_doc_name = selected_doc["filename"]
+            st.session_state["active_doc_hash"] = active_doc_hash
+            st.session_state["active_doc_name"] = active_doc_name
+            st.caption(f"🔒 **Retrieval Scope:** `{active_doc_name}` (`{active_doc_hash[:8]}...`)")
+    elif uploaded_file is not None:
+        active_doc_hash = st.session_state.get("active_doc_hash")
+        active_doc_name = st.session_state.get("active_doc_name", uploaded_file.name)
+        st.caption(f"🔒 **Retrieval Scope (Uploaded):** `{active_doc_name}`")
+    else:
+        st.warning("⚠️ No documents indexed yet. Upload a document to start.")
+
+    # Indexed Documents in ChromaDB Expander
+    if db_indexed_docs:
+        with st.expander(f"📁 Indexed in Vectorstore ({len(db_indexed_docs)} documents)", expanded=False):
+            for doc in db_indexed_docs:
+                is_active = (doc["document_id"] == active_doc_hash)
+                active_badge = " *(Active)*" if is_active else ""
+                st.markdown(f"- **`{doc['filename']}`**{active_badge}")
+                st.caption(f"  ID: `{doc['document_id'][:12]}...` | Chunks: {doc['chunks_count']}")
 
     st.divider()
 
@@ -563,6 +622,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                     t_ret_start = time.perf_counter()
                     retrieval_result = retriever.retrieve(
                         question=search_query,
+                        document_hash=active_doc_hash,
                         top_k_candidates=int(os.getenv("RAG_INITIAL_RETRIEVAL_K", 8)),
                         max_selected_chunks=int(os.getenv("RAG_FINAL_CONTEXT_K", 5))
                     )
@@ -642,6 +702,8 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                         "context_found": context_found,
                         "search_query": search_query,
                         "request_id": tracker.request_id,
+                        "selected_document_name": active_doc_name,
+                        "selected_document_hash": active_doc_hash,
                         "sources": sources,
                         "latency_breakdown": {
                             "reformulation_ms": ref_latency_ms,

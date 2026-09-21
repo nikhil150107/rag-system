@@ -67,6 +67,35 @@ class RAGRetriever:
         except Exception:
             return False
 
+    def get_indexed_documents(self) -> List[Dict[str, Any]]:
+        """
+        Scan collection metadata and return distinct indexed documents.
+        Returns a list of dicts with document_id, document_hash, filename, chunks_count, created_at.
+        """
+        try:
+            results = self.collection.get()
+            metadatas = results.get("metadatas", [])
+            docs_map: Dict[str, Dict[str, Any]] = {}
+            for m in metadatas:
+                if not m:
+                    continue
+                doc_id = m.get("document_id") or m.get("document_hash") or m.get("filename")
+                if not doc_id:
+                    continue
+                if doc_id not in docs_map:
+                    docs_map[doc_id] = {
+                        "document_id": str(doc_id),
+                        "document_hash": str(doc_id),
+                        "filename": m.get("filename", "Unknown Document"),
+                        "chunks_count": 0,
+                        "created_at": m.get("created_at", "N/A")
+                    }
+                docs_map[doc_id]["chunks_count"] += 1
+            return list(docs_map.values())
+        except Exception as e:
+            logger.warning(f"Error fetching indexed documents: {e}")
+            return []
+
     def ingest_document(
         self,
         file_bytes: bytes,
@@ -85,6 +114,7 @@ class RAGRetriever:
                 "success": True,
                 "duplicate": True,
                 "document_id": document_id,
+                "document_hash": document_id,
                 "filename": filename,
                 "message": "Document already indexed",
                 "chunks_created": 0,
@@ -106,6 +136,7 @@ class RAGRetriever:
         metadatas = [
             {
                 "document_id": document_id,
+                "document_hash": document_id,
                 "filename": filename,
                 "chunk_id": f"{document_id}_{c.chunk_index}",
                 "chunk_index": c.chunk_index,
@@ -130,6 +161,7 @@ class RAGRetriever:
             "success": True,
             "duplicate": False,
             "document_id": document_id,
+            "document_hash": document_id,
             "filename": filename,
             "chunks_created": len(chunks),
             "chunks_added": len(chunks)
@@ -138,11 +170,15 @@ class RAGRetriever:
     def retrieve(
         self,
         question: str,
+        document_hash: Optional[str] = None,
+        document_id: Optional[str] = None,
         top_k_candidates: Optional[int] = None,
-        max_selected_chunks: Optional[int] = None
+        max_selected_chunks: Optional[int] = None,
+        where_filter: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Multi-stage retrieval pipeline:
+        Multi-stage retrieval pipeline with optional document isolation filter:
+        Stage 0: Document isolation filter (where clause on document_id/document_hash)
         Stage 1: Vector retrieval (top_k_candidates, default 8)
         Stage 2: Distance threshold filtering (distance <= threshold)
         Stage 3: Cross-Encoder re-ranking
@@ -151,29 +187,58 @@ class RAGRetriever:
         init_k = top_k_candidates if top_k_candidates is not None else self.initial_retrieval_k
         final_k = max_selected_chunks if max_selected_chunks is not None else self.final_context_k
 
+        target_hash = document_hash or document_id
+
         if self.collection.count() == 0:
             logger.info("Vector database is empty. No candidates retrieved.")
             return {
                 "context_found": False,
                 "sources": [],
-                "chunks": []
+                "chunks": [],
+                "document_hash": target_hash
             }
 
         # ---------------------------------------------------------
-        # Stage 1: Vector Retrieval (Bi-encoder embeddings)
+        # Stage 0: Document Isolation Filter
+        # ---------------------------------------------------------
+        effective_where: Optional[Dict[str, Any]] = None
+        if where_filter is not None:
+            effective_where = where_filter
+        elif target_hash:
+            effective_where = {"document_id": str(target_hash)}
+
+        # ---------------------------------------------------------
+        # Stage 1: Vector Retrieval (Bi-encoder embeddings + doc filter)
         # ---------------------------------------------------------
         q_embedding = self.embedding_service.embed_query(question)
         num_candidates = min(init_k, self.collection.count())
-        query_results = self.collection.query(
-            query_embeddings=[q_embedding],
-            n_results=num_candidates
+        
+        query_kwargs: Dict[str, Any] = {
+            "query_embeddings": [q_embedding],
+            "n_results": num_candidates
+        }
+        if effective_where:
+            query_kwargs["where"] = effective_where
+
+        try:
+            query_results = self.collection.query(**query_kwargs)
+        except Exception as e:
+            logger.error(f"ChromaDB query failed with where={effective_where}: {e}")
+            return {
+                "context_found": False,
+                "sources": [],
+                "chunks": [],
+                "document_hash": target_hash
+            }
+
+        documents = query_results.get("documents", [[]])[0] if query_results.get("documents") else []
+        distances = query_results.get("distances", [[]])[0] if query_results.get("distances") else []
+        metadatas = query_results.get("metadatas", [[]])[0] if query_results.get("metadatas") else []
+
+        logger.info(
+            f"Question: '{question}' | Filter: {effective_where} | "
+            f"Vector candidates retrieved: {len(documents)}"
         )
-
-        documents = query_results.get("documents", [[]])[0]
-        distances = query_results.get("distances", [[]])[0]
-        metadatas = query_results.get("metadatas", [[]])[0]
-
-        logger.info(f"Question: '{question}' | Vector candidates retrieved: {len(documents)}")
 
         # ---------------------------------------------------------
         # Stage 2: Distance Threshold Filtering
@@ -192,7 +257,8 @@ class RAGRetriever:
                     "filename": meta.get("filename", "unknown"),
                     "page_number": page_num,
                     "chunk_index": meta.get("chunk_index", 0),
-                    "document_id": meta.get("document_id", "unknown"),
+                    "document_id": meta.get("document_id", meta.get("document_hash", "unknown")),
+                    "document_hash": meta.get("document_hash", meta.get("document_id", "unknown")),
                     "distance": round(dist_val, 4),
                     "snippet": snippet,
                     "full_text": doc
@@ -204,7 +270,8 @@ class RAGRetriever:
             return {
                 "context_found": False,
                 "sources": [],
-                "chunks": []
+                "chunks": [],
+                "document_hash": target_hash
             }
 
         # ---------------------------------------------------------
@@ -226,6 +293,7 @@ class RAGRetriever:
                 "page_number": item["page_number"],
                 "chunk_index": item["chunk_index"],
                 "document_id": item["document_id"],
+                "document_hash": item.get("document_hash", item["document_id"]),
                 "distance": item["distance"],
                 "reranker_score": item.get("reranker_score"),
                 "snippet": item["snippet"],
@@ -236,5 +304,6 @@ class RAGRetriever:
         return {
             "context_found": True,
             "sources": sources,
-            "chunks": chunks
+            "chunks": chunks,
+            "document_hash": target_hash
         }

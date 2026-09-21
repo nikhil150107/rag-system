@@ -222,20 +222,32 @@ def upload_file():
         return jsonify({"error": f"Failed to index document: {str(e)}"}), 500
 
 
+@app.route("/documents", methods=["GET"])
+def get_documents():
+    """List all distinct indexed documents in ChromaDB."""
+    try:
+        docs = retriever.get_indexed_documents()
+        return jsonify({"documents": docs, "total": len(docs)}), 200
+    except Exception as e:
+        logger.error(f"Failed to list documents: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/ask", methods=["POST"])
 def ask_question():
     """
-    Accept question and conversation history.
+    Accept question, optional document_hash/document_id, and conversation history.
     1. Start request observability tracker with unique request ID.
-    2. Reformulate question using history into a standalone search query via DeepSeek.
-    3. Retrieve candidate chunks with standalone query from ChromaDB.
+    2. Reformulate question using history into a standalone search query via LLM.
+    3. Retrieve candidate chunks with standalone query from ChromaDB (isolated to document_hash if provided).
     4. Filter by distance threshold and re-rank via Cross-Encoder.
-    5. Generate grounded or fallback response via DeepSeek (deepseek-chat).
+    5. Generate grounded or fallback response via configured LLM.
     6. Record telemetry metrics and return request_id with answer and sources.
     """
     data = request.get_json(silent=True) or {}
     question = data.get("question", "").strip()
     raw_history = data.get("conversation_history", [])
+    document_hash = data.get("document_hash") or data.get("document_id")
 
     if not question:
         return jsonify({"error": "Field 'question' is required"}), 400
@@ -275,12 +287,15 @@ def ask_question():
 
     logger.info(f"request_id={tracker.request_id} Original question: '{question}'")
     logger.info(f"request_id={tracker.request_id} Reformulated query: '{search_query}'")
+    if document_hash:
+        logger.info(f"request_id={tracker.request_id} Document isolation filter: '{document_hash}'")
 
-    # Multi-stage retrieval with latency measurement
+    # Multi-stage retrieval with latency measurement and optional document isolation
     t_ret_start = time.perf_counter()
     try:
         retrieval_result = retriever.retrieve(
             question=search_query,
+            document_hash=document_hash,
             top_k_candidates=RAG_INITIAL_RETRIEVAL_K,
             max_selected_chunks=RAG_FINAL_CONTEXT_K
         )
