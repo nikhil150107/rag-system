@@ -244,8 +244,15 @@ def render_sources(sources: List[Dict[str, Any]]):
                 st.divider()
 
 
-def render_rag_pipeline_info(msg: Dict[str, Any], active_model_name: str = DEFAULT_LLM_MODEL):
+def render_rag_pipeline_info(
+    msg: Dict[str, Any],
+    active_model_name: str = DEFAULT_LLM_MODEL,
+    active_threshold: Optional[float] = None
+):
     """Render RAG pipeline execution diagnostics and latency metrics."""
+    if active_threshold is None:
+        active_threshold = getattr(retriever, "distance_threshold", float(os.getenv("RAG_DISTANCE_THRESHOLD", 1.0)))
+    threshold_str = f"{active_threshold:.1f}" if isinstance(active_threshold, (int, float)) else str(active_threshold)
     req_id = msg.get("request_id")
     search_query = msg.get("search_query")
     context_found = msg.get("context_found")
@@ -259,7 +266,7 @@ def render_rag_pipeline_info(msg: Dict[str, Any], active_model_name: str = DEFAU
             f"User Question + History\n"
             f"  ↳ 1. Multi-Turn Query Reformulator ({active_model_name})\n"
             f"  ↳ 2. Dense Vector Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)\n"
-            f"  ↳ 3. Cosine Distance Threshold Filter (<= 0.6)\n"
+            f"  ↳ 3. Cosine Distance Threshold Filter (<= {threshold_str})\n"
             f"  ↳ 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)\n"
             f"  ↳ 5. Grounded Context-Bound Generation ({active_model_name})",
             language="text"
@@ -490,7 +497,7 @@ for msg in st.session_state.messages:
             elif msg.get("context_found") is False:
                 st.caption("⚠️ *Answered using general assistant fallback (no matching document context found).*")
 
-            render_rag_pipeline_info(msg, active_model_name=active_model)
+            render_rag_pipeline_info(msg, active_model_name=active_model, active_threshold=retriever.distance_threshold)
 
 
 # ---------------------------------------------------------
@@ -642,7 +649,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
                             "llm_ms": llm_latency_ms
                         }
                     }
-                    render_rag_pipeline_info(msg_data, active_model_name=active_model)
+                    render_rag_pipeline_info(msg_data, active_model_name=active_model, active_threshold=retriever.distance_threshold)
 
                     # Save assistant message to session state
                     st.session_state.messages.append(msg_data)

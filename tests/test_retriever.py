@@ -26,7 +26,7 @@ def in_memory_retriever():
         collection_name="test_collection",
         embedding_service=mock_emb,
         chunker=RecursiveChunker(target_tokens=50, overlap_tokens=10),
-        distance_threshold=0.6
+        distance_threshold=1.0
     )
     return retriever
 
@@ -128,3 +128,28 @@ def test_broad_thematic_query_retrieval():
     assert res["context_found"] is True
     assert len(res["sources"]) >= 1
     assert res["sources"][0]["filename"] == "DAA exp 6.pdf"
+
+
+def test_default_distance_threshold_resolution(monkeypatch):
+    """Ensure default distance threshold is 1.0 (not 0.6) both with and without env override."""
+    client = chromadb.EphemeralClient()
+    mock_emb = MockEmbeddingService()
+
+    # Without env var set, default should be 1.0
+    monkeypatch.delenv("RAG_DISTANCE_THRESHOLD", raising=False)
+    retriever_default = RAGRetriever(
+        chroma_client=client,
+        collection_name="test_default_thresh",
+        embedding_service=mock_emb
+    )
+    assert retriever_default.distance_threshold == 1.0
+
+    # With env var set to custom value, it respects the env var
+    monkeypatch.setenv("RAG_DISTANCE_THRESHOLD", "0.85")
+    retriever_env = RAGRetriever(
+        chroma_client=client,
+        collection_name="test_env_thresh",
+        embedding_service=mock_emb
+    )
+    assert retriever_env.distance_threshold == 0.85
+

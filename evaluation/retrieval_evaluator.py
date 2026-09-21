@@ -60,7 +60,7 @@ class RetrievalEvaluator:
         self,
         dataset_path: Optional[str] = None,
         vector_db_path: Optional[str] = None,
-        distance_threshold: float = 0.6
+        distance_threshold: float = 1.0
     ):
         self.dataset_path = Path(dataset_path or (ROOT_DIR / "evaluation" / "dataset.json")).resolve()
         self.vector_db_path = Path(vector_db_path or (ROOT_DIR / "vectorstore")).resolve()
