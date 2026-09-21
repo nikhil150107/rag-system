@@ -1,6 +1,6 @@
-# Document Q&A RAG Assistant (Powered by xAI Grok)
+# Document Q&A RAG Assistant (Powered by DeepSeek)
 
-A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation via **xAI Grok** (`grok-4.20-0309-non-reasoning`), and telemetry observability.
+A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversational Memory, Query Reformulation, Bi-Encoder vector search, Cross-Encoder re-ranking, grounded generation via **DeepSeek** (`deepseek-chat`), and telemetry observability.
 
 ---
 
@@ -9,7 +9,7 @@ A multi-stage **Retrieval-Augmented Generation (RAG)** application with Conversa
 ```
 User Question + Conversation History
                ↓
-1. Multi-Turn Query Reformulator (xAI grok-4.20-0309-non-reasoning)
+1. Multi-Turn Query Reformulator (DeepSeek deepseek-chat)
                ↓ [Standalone Search Query]
 2. Dense Bi-Encoder Retrieval (all-MiniLM-L6-v2 in ChromaDB Top-8)
                ↓ [Top-8 Candidates]
@@ -17,7 +17,7 @@ User Question + Conversation History
                ↓ [Surviving Candidates]
 4. Cross-Encoder Re-Ranking (ms-marco-MiniLM-L-6-v2 Top-5)
                ↓ [Top-5 Relevant Chunks]
-5. Grounded LLM Generation (xAI grok-4.20-0309-non-reasoning with Document Context)
+5. Grounded LLM Generation (DeepSeek deepseek-chat with Document Context)
                ↓
 Answer + Sources (Vector Distance & Reranker Score) + Telemetry
 ```
@@ -42,14 +42,15 @@ The application runs as a **standalone, self-contained Streamlit application** o
 
 3. **Configure Secrets**:
    - Click **Advanced Settings** $\to$ **Secrets**.
-   - Add your xAI Grok API key in TOML format:
+   - Add your DeepSeek API key and configuration in TOML format:
      ```toml
-     XAI_API_KEY = "xai-your-api-key-here"
+     DEEPSEEK_API_KEY = "your-deepseek-api-key"
+     LLM_PROVIDER = "deepseek"
+     LLM_BASE_URL = "https://api.deepseek.com"
+     LLM_MODEL = "deepseek-chat"
      ```
-   - *(Optional environment overrides can also be added here if desired)*:
+   - *(Optional pipeline parameter overrides can also be added here if desired)*:
      ```toml
-     LLM_BASE_URL = "https://api.x.ai/v1"
-     LLM_MODEL = "grok-4.20-0309-non-reasoning"
      RAG_DISTANCE_THRESHOLD = "0.6"
      RAG_INITIAL_RETRIEVAL_K = "8"
      RAG_FINAL_CONTEXT_K = "5"
@@ -77,9 +78,10 @@ pip install -r requirements.txt
 ### 2. Configure `.env`
 Create `.env` in the root folder (or copy from `.env.example`):
 ```ini
-XAI_API_KEY=your-xai-api-key-here
-LLM_BASE_URL=https://api.x.ai/v1
-LLM_MODEL=grok-4.20-0309-non-reasoning
+DEEPSEEK_API_KEY=your-deepseek-api-key-here
+LLM_PROVIDER=deepseek
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-chat
 VECTOR_DB_PATH=./vectorstore
 EMBEDDING_MODEL=all-MiniLM-L6-v2
 RAG_DISTANCE_THRESHOLD=0.6
@@ -125,9 +127,10 @@ python evaluation/retrieval_evaluator.py
 
 | Variable / Secret | Description | Default |
 | :--- | :--- | :--- |
-| `XAI_API_KEY` | xAI Grok API Key for reformulation and generation | *(Required)* |
-| `LLM_BASE_URL` | xAI OpenAI-compatible API base URL | `https://api.x.ai/v1` |
-| `LLM_MODEL` | xAI Grok LLM model name | `grok-4.20-0309-non-reasoning` |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key for reformulation and generation | *(Required)* |
+| `LLM_PROVIDER` | LLM Provider identifier | `deepseek` |
+| `LLM_BASE_URL` | DeepSeek OpenAI-compatible API base URL | `https://api.deepseek.com` |
+| `LLM_MODEL` | DeepSeek LLM model name | `deepseek-chat` |
 | `EMBEDDING_MODEL` | Bi-Encoder sentence-transformers model | `all-MiniLM-L6-v2` |
 | `RAG_RERANKER_MODEL` | Hugging Face Cross-Encoder model | `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | `RAG_DISTANCE_THRESHOLD` | Cosine distance cutoff threshold | `0.6` |

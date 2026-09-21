@@ -1,4 +1,4 @@
-"""Unit tests for QueryReformulator service powered by xAI Grok."""
+"""Unit tests for QueryReformulator service powered by DeepSeek."""
 import pytest
 from unittest.mock import MagicMock
 from rag.query_reformulator import QueryReformulator
@@ -6,31 +6,31 @@ from rag.query_reformulator import QueryReformulator
 
 def test_standalone_question_reformulation():
     """Test 1: Standalone question with history returns standalone query."""
-    mock_grok = MagicMock()
+    mock_llm = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = '{"search_query": "What is the refund policy?"}'
     mock_response = MagicMock(choices=[mock_choice])
-    mock_grok.chat.completions.create.return_value = mock_response
+    mock_llm.chat.completions.create.return_value = mock_response
 
-    reformulator = QueryReformulator(llm_client=mock_grok, max_history_turns=5)
+    reformulator = QueryReformulator(llm_client=mock_llm, max_history_turns=5)
     history = [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi! How can I help you today?"}
     ]
     query = reformulator.reformulate("What is the refund policy?", history)
     assert query == "What is the refund policy?"
-    mock_grok.chat.completions.create.assert_called_once()
+    mock_llm.chat.completions.create.assert_called_once()
 
 
 def test_pronoun_resolution():
     """Test 2: Pronoun resolution ('How much does it cost?' -> includes 'Pro plan' & 'cost')."""
-    mock_grok = MagicMock()
+    mock_llm = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = '{"search_query": "What is the cost of the Pro plan?"}'
     mock_response = MagicMock(choices=[mock_choice])
-    mock_grok.chat.completions.create.return_value = mock_response
+    mock_llm.chat.completions.create.return_value = mock_response
 
-    reformulator = QueryReformulator(llm_client=mock_grok, max_history_turns=5)
+    reformulator = QueryReformulator(llm_client=mock_llm, max_history_turns=5)
     history = [
         {"role": "user", "content": "Tell me about the Pro plan."},
         {"role": "assistant", "content": "The Pro plan provides advanced features for teams."}
@@ -42,13 +42,13 @@ def test_pronoun_resolution():
 
 def test_contextual_follow_up():
     """Test 3: Contextual follow-up inherits entity/topic from conversation history."""
-    mock_grok = MagicMock()
+    mock_llm = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = '{"search_query": "What is the refund policy for international purchases?"}'
     mock_response = MagicMock(choices=[mock_choice])
-    mock_grok.chat.completions.create.return_value = mock_response
+    mock_llm.chat.completions.create.return_value = mock_response
 
-    reformulator = QueryReformulator(llm_client=mock_grok, max_history_turns=5)
+    reformulator = QueryReformulator(llm_client=mock_llm, max_history_turns=5)
     history = [
         {"role": "user", "content": "Explain the refund policy."},
         {"role": "assistant", "content": "We offer 30-day money-back guarantee on standard domestic orders."}
@@ -60,8 +60,8 @@ def test_contextual_follow_up():
 
 def test_empty_history_skips_llm_call():
     """Test 4: Empty history returns original question immediately without LLM invocation."""
-    mock_grok = MagicMock()
-    reformulator = QueryReformulator(llm_client=mock_grok, max_history_turns=5)
+    mock_llm = MagicMock()
+    reformulator = QueryReformulator(llm_client=mock_llm, max_history_turns=5)
 
     q1 = reformulator.reformulate("What is the refund policy?", [])
     assert q1 == "What is the refund policy?"
@@ -69,15 +69,15 @@ def test_empty_history_skips_llm_call():
     q2 = reformulator.reformulate("What is the refund policy?", None)
     assert q2 == "What is the refund policy?"
 
-    mock_grok.chat.completions.create.assert_not_called()
+    mock_llm.chat.completions.create.assert_not_called()
 
 
 def test_reformulator_failure_falls_back_safely():
-    """Test 5: On xAI error or timeout, safely falls back to original question."""
-    mock_grok = MagicMock()
-    mock_grok.chat.completions.create.side_effect = Exception("xAI Grok API rate limit / timeout error")
+    """Test 5: On API error or timeout, safely falls back to original question."""
+    mock_llm = MagicMock()
+    mock_llm.chat.completions.create.side_effect = Exception("DeepSeek API rate limit / timeout error")
 
-    reformulator = QueryReformulator(llm_client=mock_grok, max_history_turns=5)
+    reformulator = QueryReformulator(llm_client=mock_llm, max_history_turns=5)
     history = [
         {"role": "user", "content": "Tell me about the Pro plan."}
     ]
@@ -87,12 +87,12 @@ def test_reformulator_failure_falls_back_safely():
 
 def test_history_limit_truncation():
     """Test 6: Provide more than max_history_turns turns, verify only recent turns are passed."""
-    mock_grok = MagicMock()
+    mock_llm = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = '{"search_query": "What is the cost of Enterprise plan?"}'
-    mock_grok.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
+    mock_llm.chat.completions.create.return_value = MagicMock(choices=[mock_choice])
 
-    reformulator = QueryReformulator(llm_client=mock_grok, max_history_turns=2)
+    reformulator = QueryReformulator(llm_client=mock_llm, max_history_turns=2)
 
     # 4 full turns (8 messages)
     history = [
@@ -108,7 +108,7 @@ def test_history_limit_truncation():
 
     reformulator.reformulate("How much does it cost?", history)
 
-    called_messages = mock_grok.chat.completions.create.call_args[1]["messages"]
+    called_messages = mock_llm.chat.completions.create.call_args[1]["messages"]
     user_prompt_content = called_messages[1]["content"]
 
     # Only last 4 messages (2 turns) should be present

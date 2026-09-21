@@ -64,10 +64,11 @@ RAG_OBSERVABILITY_ENABLED = os.getenv("RAG_OBSERVABILITY_ENABLED", "true").lower
 RAG_METRICS_PATH = os.getenv("RAG_METRICS_PATH", "./logs/rag_metrics.jsonl")
 RAG_LOG_QUESTIONS = os.getenv("RAG_LOG_QUESTIONS", "false").lower() in ("true", "1", "yes")
 
-# xAI Grok LLM configuration
-XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("LLM_API_KEY")
-LLM_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("XAI_BASE_URL", DEFAULT_LLM_BASE_URL)
-LLM_MODEL = os.getenv("LLM_MODEL") or os.getenv("GROK_MODEL", DEFAULT_LLM_MODEL)
+# DeepSeek LLM configuration
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "deepseek")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+LLM_MODEL = os.getenv("LLM_MODEL", DEFAULT_LLM_MODEL)
 
 # Resolve vector db path
 vector_db_path = Path(VECTOR_DB_PATH_RAW)
@@ -83,7 +84,7 @@ uploads_dir = (BASE_DIR / "uploads").resolve()
 uploads_dir.mkdir(parents=True, exist_ok=True)
 
 # ---------------------------------------------------------
-# 2. Initialization: ChromaDB, EmbeddingService, Reranker, Retriever, Grok LLM, Observability, Flask
+# 2. Initialization: ChromaDB, EmbeddingService, Reranker, Retriever, DeepSeek LLM, Observability, Flask
 # ---------------------------------------------------------
 chroma_client = chromadb.PersistentClient(path=str(vector_db_path))
 embedding_service = EmbeddingService(model_name=EMBEDDING_MODEL_NAME)
@@ -102,9 +103,9 @@ retriever = RAGRetriever(
 )
 
 llm_client = None
-if XAI_API_KEY:
+if DEEPSEEK_API_KEY:
     try:
-        llm_client = get_llm_client(api_key=XAI_API_KEY, base_url=LLM_BASE_URL)
+        llm_client = get_llm_client(api_key=DEEPSEEK_API_KEY, base_url=LLM_BASE_URL)
     except Exception as e:
         logger.warning(f"Could not pre-initialize LLM client: {str(e)}")
 
@@ -128,7 +129,7 @@ CORS(app)
 # Helper Functions
 # ---------------------------------------------------------
 def get_current_llm_client() -> OpenAI:
-    """Retrieve or dynamically initialize the xAI Grok LLM client."""
+    """Retrieve or dynamically initialize the DeepSeek LLM client."""
     global llm_client
     if llm_client is not None:
         query_reformulator.llm_client = llm_client
@@ -153,7 +154,7 @@ def health():
         "vectorstore": "ok" if chroma_client is not None else "unavailable",
         "embedding_model": "ok" if embedding_service is not None else "unavailable",
         "reranker": "ok" if reranker_service is not None else "unavailable",
-        "llm_provider": "xai_grok",
+        "llm_provider": LLM_PROVIDER,
         "llm_model": LLM_MODEL
     }
     return jsonify({
@@ -222,10 +223,10 @@ def ask_question():
     """
     Accept question and conversation history.
     1. Start request observability tracker with unique request ID.
-    2. Reformulate question using history into a standalone search query via Grok.
+    2. Reformulate question using history into a standalone search query via DeepSeek.
     3. Retrieve candidate chunks with standalone query from ChromaDB.
     4. Filter by distance threshold and re-rank via Cross-Encoder.
-    5. Generate grounded or fallback response via xAI Grok (grok-4.20-0309-non-reasoning).
+    5. Generate grounded or fallback response via DeepSeek (deepseek-chat).
     6. Record telemetry metrics and return request_id with answer and sources.
     """
     data = request.get_json(silent=True) or {}
@@ -353,7 +354,7 @@ def ask_question():
             }), 200
         except Exception as e:
             err_msg, status_code = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
-            logger.error(f"Grok LLM call failed: {err_msg}")
+            logger.error(f"DeepSeek LLM call failed: {err_msg}")
             tracker.record_error(f"LLM call failed: {err_msg}")
             observability.log_request_metrics(tracker)
             return jsonify({
@@ -391,7 +392,7 @@ def ask_question():
             }), 200
         except Exception as e:
             err_msg, status_code = format_llm_error(e, model=LLM_MODEL, endpoint=LLM_BASE_URL)
-            logger.error(f"Grok LLM fallback call failed: {err_msg}")
+            logger.error(f"DeepSeek LLM fallback call failed: {err_msg}")
             tracker.record_error(f"LLM fallback call failed: {err_msg}")
             observability.log_request_metrics(tracker)
             return jsonify({

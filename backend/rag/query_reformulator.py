@@ -13,7 +13,7 @@ class QueryReformulator:
     """
     Reformulates context-dependent follow-up questions into standalone search queries
     using recent conversation history while preserving original user intent.
-    Powered by xAI Grok (grok-4.20-0309-non-reasoning).
+    Powered by DeepSeek (deepseek-chat).
     """
 
     def __init__(

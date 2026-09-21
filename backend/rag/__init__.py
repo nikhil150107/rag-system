@@ -18,6 +18,7 @@ from .llm import (
     get_llm_config,
     format_llm_error,
     run_diagnostic_probe,
+    DEFAULT_LLM_PROVIDER,
     DEFAULT_LLM_MODEL,
     DEFAULT_LLM_BASE_URL,
 )
@@ -43,6 +44,7 @@ __all__ = [
     "get_llm_config",
     "format_llm_error",
     "run_diagnostic_probe",
+    "DEFAULT_LLM_PROVIDER",
     "DEFAULT_LLM_MODEL",
     "DEFAULT_LLM_BASE_URL",
 ]

@@ -1,4 +1,4 @@
-"""LLM Provider abstraction and client factory for xAI Grok API."""
+"""LLM Provider abstraction and client factory for DeepSeek API."""
 import os
 import re
 import logging
@@ -7,24 +7,26 @@ from openai import OpenAI, AuthenticationError, RateLimitError, APIConnectionErr
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LLM_MODEL = "grok-4.20-0309-non-reasoning"
-DEFAULT_LLM_BASE_URL = "https://api.x.ai/v1"
+DEFAULT_LLM_PROVIDER = "deepseek"
+DEFAULT_LLM_MODEL = "deepseek-chat"
+DEFAULT_LLM_BASE_URL = "https://api.deepseek.com"
 
 
 def get_llm_config() -> Dict[str, Any]:
     """
     Resolve LLM provider configuration from environment variables.
-    Precedence: XAI_API_KEY -> LLM_API_KEY.
+    Precedence: DEEPSEEK_API_KEY -> LLM_API_KEY.
     """
-    api_key = os.getenv("XAI_API_KEY") or os.getenv("LLM_API_KEY")
-    base_url = os.getenv("LLM_BASE_URL") or os.getenv("XAI_BASE_URL", DEFAULT_LLM_BASE_URL)
-    model = os.getenv("LLM_MODEL") or os.getenv("GROK_MODEL", DEFAULT_LLM_MODEL)
+    api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY")
+    base_url = os.getenv("LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
+    model = os.getenv("LLM_MODEL") or DEFAULT_LLM_MODEL
+    provider = os.getenv("LLM_PROVIDER") or DEFAULT_LLM_PROVIDER
 
     return {
         "api_key": api_key.strip() if api_key else None,
         "base_url": base_url.rstrip("/"),
         "model": model.strip() if model else DEFAULT_LLM_MODEL,
-        "provider": "xai_grok"
+        "provider": provider.strip() if provider else DEFAULT_LLM_PROVIDER
     }
 
 
@@ -33,7 +35,7 @@ def get_llm_client(
     base_url: Optional[str] = None
 ) -> OpenAI:
     """
-    Initialize and return an OpenAI-compatible client pointed to xAI Grok API.
+    Initialize and return an OpenAI-compatible client pointed to DeepSeek API.
     Raises ValueError if API key is not configured.
     """
     config = get_llm_config()
@@ -42,7 +44,7 @@ def get_llm_client(
 
     if not resolved_key:
         raise ValueError(
-            "XAI_API_KEY is not configured. Please set XAI_API_KEY in environment or Streamlit Secrets."
+            "DEEPSEEK_API_KEY is not configured. Please set DEEPSEEK_API_KEY in environment or Streamlit Secrets."
         )
 
     return OpenAI(
@@ -55,8 +57,9 @@ def _sanitize_error_text(text: str) -> str:
     """Strip out any API keys, auth tokens, or sensitive header strings."""
     if not text:
         return ""
-    text = re.sub(r'xai-[A-Za-z0-9_\-]+', '[REDACTED_API_KEY]', text)
+    text = re.sub(r'dsk-[A-Za-z0-9_\-]+', '[REDACTED_API_KEY]', text)
     text = re.sub(r'sk-[A-Za-z0-9_\-]+', '[REDACTED_API_KEY]', text)
+    text = re.sub(r'xai-[A-Za-z0-9_\-]+', '[REDACTED_API_KEY]', text)
     text = re.sub(r'(Bearer\s+)[A-Za-z0-9_\-\.]+', r'\1[REDACTED]', text, flags=re.IGNORECASE)
     text = re.sub(r'(api[_-]?key[\'":\s=]+)[\'"]?[A-Za-z0-9_\-\.]+[\'"]?', r'\1[REDACTED]', text, flags=re.IGNORECASE)
     text = re.sub(r'(Authorization[\'":\s=]+)[\'"]?[A-Za-z0-9_\-\.\s]+[\'"]?', r'\1[REDACTED]', text, flags=re.IGNORECASE)
@@ -73,11 +76,11 @@ def format_llm_error(
     Returns (user_facing_message, http_status_code).
     """
     if isinstance(error, AuthenticationError):
-        return ("xAI Grok Authentication failed. Please verify your XAI_API_KEY in Streamlit Secrets.", 401)
+        return ("DeepSeek Authentication failed. Please verify your DEEPSEEK_API_KEY in Streamlit Secrets.", 401)
     if isinstance(error, RateLimitError):
-        return ("xAI Grok rate limit or quota exceeded. Please try again shortly.", 429)
+        return ("DeepSeek rate limit or quota exceeded. Please try again shortly.", 429)
     if isinstance(error, APIConnectionError):
-        return ("Failed to connect to xAI Grok API endpoint (https://api.x.ai/v1). Please check network connectivity.", 503)
+        return ("Failed to connect to DeepSeek API endpoint (https://api.deepseek.com). Please check network connectivity.", 503)
     if isinstance(error, APIError):
         status_code = getattr(error, "status_code", 500) or 500
         body = getattr(error, "body", None)
@@ -102,9 +105,12 @@ def format_llm_error(
             meta_info.append(f"Endpoint: `{endpoint}`")
         meta_str = f" ({', '.join(meta_info)})" if meta_info else ""
 
+        # Distinguish balance / insufficient credits
+        if status_code == 402 or "insufficient balance" in sanitized_msg.lower() or "balance" in sanitized_msg.lower():
+            return (f"DeepSeek Insufficient Balance{meta_str}:\n{sanitized_msg}\nPlease check your account balance at platform.deepseek.com.", 402)
         if status_code == 400:
-            return (f"xAI API 400 Bad Request{meta_str}:\n{sanitized_msg}", 400)
-        return (f"xAI Grok Provider Error (Status {status_code}){meta_str}:\n{sanitized_msg}", status_code)
+            return (f"DeepSeek API 400 Bad Request{meta_str}:\n{sanitized_msg}", 400)
+        return (f"DeepSeek Provider Error (Status {status_code}){meta_str}:\n{sanitized_msg}", status_code)
 
     sanitized_generic = _sanitize_error_text(str(error))
     return (f"An unexpected error occurred during LLM processing: {sanitized_generic}", 500)
@@ -116,9 +122,9 @@ def run_diagnostic_probe(
 ) -> Dict[str, Any]:
     """
     Execute progressive API probes to test model, sampling parameters,
-    and structured output compatibility on xAI Grok API.
+    and structured output compatibility on DeepSeek API.
     """
-    results = {"model": model, "endpoint": "https://api.x.ai/v1/chat/completions", "steps": {}}
+    results = {"model": model, "endpoint": "https://api.deepseek.com/chat/completions", "steps": {}}
 
     # Step 1: Minimal request
     try:

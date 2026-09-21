@@ -1,7 +1,7 @@
 """Document Q&A RAG Assistant - Standalone Streamlit Application.
 
 Executes the modular RAG pipeline directly in-process with singleton model caching
-via @st.cache_resource and xAI Grok API (grok-4.20-0309-non-reasoning) for high performance.
+via @st.cache_resource and DeepSeek API (deepseek-chat) for high performance.
 """
 import os
 import sys
@@ -51,6 +51,7 @@ try:
         get_llm_config,
         format_llm_error,
         run_diagnostic_probe,
+        DEFAULT_LLM_PROVIDER,
         DEFAULT_LLM_MODEL,
         DEFAULT_LLM_BASE_URL,
     )
@@ -71,6 +72,7 @@ except ImportError:
         get_llm_config,
         format_llm_error,
         run_diagnostic_probe,
+        DEFAULT_LLM_PROVIDER,
         DEFAULT_LLM_MODEL,
         DEFAULT_LLM_BASE_URL,
     )
@@ -79,7 +81,7 @@ except ImportError:
 # 2. Page Configuration & Setup
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Document Q&A RAG Assistant (xAI Grok)",
+    page_title="Document Q&A RAG Assistant (DeepSeek)",
     page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -160,28 +162,29 @@ def resolve_llm_setting(name: str, default_val: str) -> str:
     return default_val
 
 
-def get_xai_api_key() -> Optional[str]:
-    """Resolve xAI Grok API key from Streamlit Secrets, environment, or session state."""
+def get_deepseek_api_key() -> Optional[str]:
+    """Resolve DeepSeek API key from Streamlit Secrets, environment, or session state."""
     # 1. Streamlit Secrets (for Streamlit Cloud deployment)
     try:
-        if "XAI_API_KEY" in st.secrets and str(st.secrets["XAI_API_KEY"]).strip():
-            return str(st.secrets["XAI_API_KEY"]).strip()
+        if "DEEPSEEK_API_KEY" in st.secrets and str(st.secrets["DEEPSEEK_API_KEY"]).strip():
+            return str(st.secrets["DEEPSEEK_API_KEY"]).strip()
         if "LLM_API_KEY" in st.secrets and str(st.secrets["LLM_API_KEY"]).strip():
             return str(st.secrets["LLM_API_KEY"]).strip()
     except Exception:
         pass
 
     # 2. Environment Variables (.env / system)
-    key = os.getenv("XAI_API_KEY") or os.getenv("LLM_API_KEY")
+    key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("LLM_API_KEY")
     if key and key.strip():
         return key.strip()
 
     # 3. User Sidebar input
-    return st.session_state.get("user_xai_api_key", "").strip() or None
+    return st.session_state.get("user_deepseek_api_key", "").strip() or None
 
 
-# Backward-compatible alias
-get_openai_api_key = get_xai_api_key
+# Backward-compatible aliases
+get_openai_api_key = get_deepseek_api_key
+get_xai_api_key = get_deepseek_api_key
 
 # Load components
 rag_components = get_rag_components()
@@ -189,8 +192,9 @@ retriever = rag_components["retriever"]
 observability = rag_components["observability"]
 
 # Provider settings
-LLM_BASE_URL = resolve_llm_setting("LLM_BASE_URL", resolve_llm_setting("XAI_BASE_URL", DEFAULT_LLM_BASE_URL))
-LLM_MODEL = resolve_llm_setting("LLM_MODEL", resolve_llm_setting("GROK_MODEL", DEFAULT_LLM_MODEL))
+LLM_PROVIDER = resolve_llm_setting("LLM_PROVIDER", DEFAULT_LLM_PROVIDER)
+LLM_BASE_URL = resolve_llm_setting("LLM_BASE_URL", DEFAULT_LLM_BASE_URL)
+LLM_MODEL = resolve_llm_setting("LLM_MODEL", DEFAULT_LLM_MODEL)
 
 
 # ---------------------------------------------------------
@@ -267,7 +271,7 @@ def render_rag_pipeline_info(msg: Dict[str, Any]):
             with l_cols[1]:
                 st.metric("Retrieval + Rerank", f"{latency_breakdown.get('retrieval_ms', 0):.0f} ms")
             with l_cols[2]:
-                st.metric("Grok Generation", f"{latency_breakdown.get('llm_ms', 0):.0f} ms")
+                st.metric("DeepSeek Generation", f"{latency_breakdown.get('llm_ms', 0):.0f} ms")
 
 
 # ---------------------------------------------------------
@@ -282,14 +286,14 @@ with st.sidebar:
         st.markdown("- **Vectorstore:** `ChromaDB PersistentClient (Active)`")
         st.markdown("- **Embedding Model:** `all-MiniLM-L6-v2 (Loaded)`")
         st.markdown("- **Cross-Encoder:** `ms-marco-MiniLM-L-6-v2 (Loaded)`")
-        st.markdown(f"- **LLM Provider:** `xAI Grok ({LLM_MODEL})`")
+        st.markdown(f"- **LLM Provider:** `DeepSeek ({LLM_MODEL})`")
         st.markdown(f"- **Base URL:** `{LLM_BASE_URL}`")
         st.markdown("- **Execution Mode:** `In-Process Singleton (@st.cache_resource)`")
 
         # Diagnostic Probe Button
-        test_api_key = get_xai_api_key()
+        test_api_key = get_deepseek_api_key()
         if test_api_key:
-            if st.button("🧪 Run xAI Connection Test", key="run_probe_btn", use_container_width=True):
+            if st.button("🧪 Run DeepSeek Connection Test", key="run_probe_btn", use_container_width=True):
                 with st.spinner("Executing progressive API connection probes..."):
                     probe_client = OpenAI(api_key=test_api_key, base_url=LLM_BASE_URL)
                     probe_results = run_diagnostic_probe(client=probe_client, model=LLM_MODEL)
@@ -304,20 +308,20 @@ with st.sidebar:
                         st.success(f"🎉 All probes passed successfully with model `{LLM_MODEL}`!")
 
     # API Key Configuration
-    api_key = get_xai_api_key()
+    api_key = get_deepseek_api_key()
     if not api_key:
-        st.warning("⚠️ **xAI Grok API Key Missing**")
+        st.warning("⚠️ **DeepSeek API Key Missing**")
         user_key = st.text_input(
-            "Enter xAI Grok API Key",
+            "Enter DeepSeek API Key",
             type="password",
-            help="Set XAI_API_KEY in .env, Streamlit Secrets, or paste here for this session.",
+            help="Set DEEPSEEK_API_KEY in .env, Streamlit Secrets, or paste here for this session.",
             key="user_key_input"
         )
         if user_key:
-            st.session_state["user_xai_api_key"] = user_key
+            st.session_state["user_deepseek_api_key"] = user_key
             st.rerun()
     else:
-        st.caption("🔑 Grok API Key configured")
+        st.caption("🔑 DeepSeek API Key configured")
 
     st.divider()
 
@@ -412,9 +416,9 @@ with st.sidebar:
 # ---------------------------------------------------------
 st.title("📚 Document Q&A RAG Assistant")
 st.markdown(
-    f"**Enterprise Retrieval-Augmented Generation Platform (Powered by xAI Grok)** — "
+    f"**Enterprise Retrieval-Augmented Generation Platform (Powered by DeepSeek)** — "
     "Ask questions grounded strictly in your uploaded documents. "
-    "Features **Conversational Memory**, **Multi-Turn Query Reformulation**, **Dense Bi-Encoder Retrieval**, **Cross-Encoder Re-Ranking**, and **xAI Grok Generation**."
+    "Features **Conversational Memory**, **Multi-Turn Query Reformulation**, **Dense Bi-Encoder Retrieval**, **Cross-Encoder Re-Ranking**, and **DeepSeek Generation**."
 )
 
 st.divider()
@@ -442,9 +446,9 @@ for msg in st.session_state.messages:
 # 7. Question Submission & Direct RAG Pipeline Execution
 # ---------------------------------------------------------
 if prompt := st.chat_input("Ask a question about your uploaded documents..."):
-    current_api_key = get_xai_api_key()
+    current_api_key = get_deepseek_api_key()
     if not current_api_key:
-        st.error("❌ XAI_API_KEY is required to ask questions. Please configure it in Streamlit Secrets or sidebar.")
+        st.error("❌ DEEPSEEK_API_KEY is required to ask questions. Please configure it in Streamlit Secrets or sidebar.")
     else:
         # Build prior conversation history (excluding the current prompt)
         prior_history = [
@@ -460,7 +464,7 @@ if prompt := st.chat_input("Ask a question about your uploaded documents..."):
 
         # Execute in-process RAG pipeline
         with st.chat_message("assistant"):
-            with st.spinner("Retrieving relevant passages, re-ranking with Cross-Encoder, and generating answer with Grok..."):
+            with st.spinner("Retrieving relevant passages, re-ranking with Cross-Encoder, and generating answer with DeepSeek..."):
                 tracker = observability.start_request(question=prompt)
                 try:
                     llm_client = get_llm_client(api_key=current_api_key, base_url=LLM_BASE_URL)
